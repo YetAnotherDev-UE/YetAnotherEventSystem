@@ -101,6 +101,17 @@ public:
 #pragma endregion
 	// Call listeners and prune
 	void Broadcast(Args... args) {
+
+		// Check if should be routed through the network first
+		if (NetworkInterceptor && !m_isExecutingInterceptor) {
+			m_isExecutingInterceptor = true;
+
+			// Returns true, if the interceptor successfully sent a network package.
+			// Stop execution -> the RPC will travel over the network and call 'Broadcast()' again
+			bool wasIntercepted = NetworkInterceptor(args...);
+			if (wasIntercepted) return;
+		}
+
 		TArray<TSharedPtr<IEventCallback<Args...>>, TInlineAllocator<16>> callbacksToInvoke;
 
 		{ // Only lock the thread to check if a callback is valid or to modify the collection (the actual callbacks can be outside the lock -> prevents deadlocks)
@@ -134,11 +145,15 @@ public:
 		m_nextID = 0;
 	}
 
+	// A lambda for deciding whether the broadcast should be routed through the network
+	TFunction<bool(Args...)> NetworkInterceptor;
+
 	int32 GetListenerCount() const { return m_callbacks.Num(); }
 
 private:
 	TMap<uint64, TSharedPtr<IEventCallback<Args...>>> m_callbacks;
 	uint64 m_nextID{ 0 };
+	bool m_isExecutingInterceptor{ false };
 
 	// Thread safety
 	mutable FCriticalSection m_mutex; // allow locking in const methods

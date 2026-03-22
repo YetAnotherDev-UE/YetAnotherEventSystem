@@ -18,7 +18,7 @@ void ALightSwitchActor::Tick(float DeltaTime) {
 
 		UE_LOG(LogTemp, Warning, TEXT("Broadcast Event!"));
 
-		OnLightSwitchTurnedOn.Broadcast(); // Reacted to in Blueprint
+		OnLightSwitchTurnedOn_One.Broadcast(); // Reacted to in Blueprint
 		bTriggeredOnce = true;
 	}
 }

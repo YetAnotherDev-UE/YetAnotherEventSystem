@@ -2,7 +2,7 @@ import os
 import re
 
 PATTERN = re.compile( # compile text pattern into object once
-	r"(UEVENT\s*\(\)\s*TEvent<(.*?)>\s+(\w+)(?:{})?;)"
+	r"(UEVENT\s*\((.*?)\)\s*TEvent<(.*?)>\s+(\w+)(?:\{\})?;)"
     r"(?:\s*#pragma region Generated Blueprint Delegate.*?\s*#pragma endregion)?",
     re.DOTALL
 )
@@ -15,10 +15,14 @@ def process_uevents(file_path):
     if "UEVENT" not in content:
         return
 
+    # Automatically detect if this class is network-capable (only actors and actor components are)
+    is_network_capable = any(base in content for base in ["public AActor", "public UActorComponent"])
+
     def replacer(match):
         original_declaration = match.group(1)
-        types = match.group(2).strip()
-        name = match.group(3)
+        uevent_args = match.group(2).strip()
+        types = match.group(3).strip()
+        name = match.group(4)
 
         type_list = [t.strip() for t in types.split(',') if t.strip()]
         if len(type_list) == 1 and type_list[0] == "": # If the Event is 'TEvent<>': Don't accidently create a list with one empty string
@@ -36,6 +40,52 @@ def process_uevents(file_path):
         
         signature += ");"
 
+        network_block = ""
+        interceptor_logic = ""
+
+        if is_network_capable:
+            # Determine the Remote Procedure Call (RPC) type based on the UEVENT arguments
+            rpc_type = None
+            prefix = ""
+            if "Networkable" in uevent_args:
+                rpc_type = "NetMulticast"
+                prefix = "Multicast_"
+            elif "ClientOnly" in uevent_args:
+                rpc_type = "Client"
+                prefix = "Client_"
+            elif "ServerOnly" in uevent_args:
+                rpc_type = "Server"
+                prefix = "Server_"
+            
+            # Generate the RPC wrapper if a valid argument was found
+            if rpc_type:
+                rpc_params = ", ".join([f"{t} Param{i+1}" for i, t in enumerate(type_list)])
+                rpc_args = ", ".join([f"Param{i+1}" for i in range(len(type_list))])
+            
+                network_block = (
+                    f"\t// Auto-Generated {rpc_type} RPC Wrapper\n"
+                    f"\tUFUNCTION({rpc_type}, Reliable)\n"
+                    f"\tvoid {prefix}{name}({rpc_params});\n"
+                    f"\tvirtual void {prefix}{name}_Implementation({rpc_params}) {{\n"
+                    f"\t\t{name}.Broadcast({rpc_args});\n"
+                    f"\t}}\n\n"
+                )
+            
+                # Inject the interceptor to route the .Broadcast() over the network
+                interceptor_logic = (
+                    f"\t\t{name}.NetworkInterceptor = [this](auto&&... args) -> bool {{\n"
+                    f"\t\t\tif (this->HasAuthority()) {{\n"
+                    f"\t\t\t\t{prefix}{name}(Forward<decltype(args)>(args)...);\n"
+                    f"\t\t\t\treturn true;\n"
+                    f"\t\t\t}}\n"
+                    f"\t\t\treturn false;\n"
+                    f"\t\t}};\n"
+                )
+        else:
+            if "Networkable" in uevent_args or "ClientOnly" in uevent_args or "ServerOnly" in uevent_args:
+                print(f"WARNING: Skipping network generation for {name} in {os.path.basename(file_path)}: Class is not an AActor or UActorComponent.")
+                interceptor_logic = ""
+
         # Use IIFE to execute subscription during object construction
         generated_block = (
             f"\n\t#pragma region Generated Blueprint Delegate for {name}\n"
@@ -47,9 +97,11 @@ def process_uevents(file_path):
             f"\t\t{name}.SubscribeLambda([this](auto&&... args) {{\n"
             f"\t\t\t{name}_BP.Broadcast(Forward<decltype(args)>(args)...);\n"
             f"\t\t}});\n"
+            f"{interceptor_logic}"
             f"\t\treturn 0;\n"
             f"\t}}();\n"
             f"\tpublic:\n"
+            f"{network_block}"
             f"\t#pragma endregion"
         )
 
