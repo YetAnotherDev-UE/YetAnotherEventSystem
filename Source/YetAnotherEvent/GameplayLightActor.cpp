@@ -16,6 +16,10 @@ void AGameplayLightActor::BeginPlay() {
 	if (m_attachedLight) {
 		m_attachedLight->SetVisibility(false);
 	}
+
+	if (m_myLightSwitch) {
+		m_myLightSwitch->OnLightSwitchTurnedOn_One.SubscribeUObject(this, &AGameplayLightActor::TurnLightOn);
+	}
 }
 
 void AGameplayLightActor::Tick(float DeltaTime) {
@@ -26,5 +30,4 @@ void AGameplayLightActor::EndPlay(EEndPlayReason::Type EndPlayReason) {
 	Super::EndPlay(EndPlayReason);
 }
 
-void AGameplayLightActor::TurnLightOn() { } // Handled via Blueprint right now
-
+void AGameplayLightActor::TurnLightOn() { }

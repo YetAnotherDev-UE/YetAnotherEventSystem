@@ -65,11 +65,46 @@ public:
 	virtual bool IsValid() const override { return true; } // Needs to be managed by the user (Lambdas aren't tracked by the GC)
 };
 
+// An event wrapper for lambdas tied to a UObject's lifespan
+template<typename... Args>
+class TContextLambdaCallback : public IEventCallback<Args...> {
+public:
+	TWeakObjectPtr<UObject> ContextObj;
+	TFunction<void(Args...)> Func;
+
+	TContextLambdaCallback(UObject* InContext, TFunction<void(Args...)>&& InFunc)
+		: ContextObj(InContext), Func(MoveTemp(InFunc)) {
+	}
+
+	virtual void Invoke(Args... args) override {
+		if (ContextObj.IsValid()) {
+			Func(args...);
+		}
+	}
+
+	virtual bool IsValid() const override {
+		return ContextObj.IsValid();
+	}
+};
+
 template<typename... Args>
 class TEvent {
 public:
 	TEvent() = default;
-	~TEvent() { Clear(); }
+	~TEvent() {
+		FScopeLock lock(&m_mutex);
+
+		// Cancel any pending async broadcasts before the event gets destroyed
+		for (FTSTicker::FDelegateHandle& handle : m_asnycTickerHandles) {
+			if (handle.IsValid()) {
+				FTSTicker::GetCoreTicker().RemoveTicker(handle);
+			}
+		}
+
+		// Clear array
+		m_asnycTickerHandles.Empty();
+		m_callbacks.Empty();
+	}
 
 #pragma region (Un)Subscription Logic
 	template<typename TObject>
@@ -92,6 +127,18 @@ public:
 		return FEventHandle{ id };
 	}
 
+	template<typename TCallable> requires (!TIsPointer<TCallable>::Value)
+		FEventHandle SubscribeLambda(UObject* ContextObject, TCallable&& InCallable) {
+		check(ContextObject); // Ensure the context is valid at the time of subscription
+
+		TFunction<void(Args...)> Fn(Forward<TCallable>(InCallable));
+
+		FScopeLock lock(&m_mutex);
+		const uint64 id = ++m_nextID;
+		m_callbacks.Add(id, MakeShared<TContextLambdaCallback<Args...>>(ContextObject, MoveTemp(Fn)));
+		return FEventHandle{ id };
+	}
+
 	void Unsubscribe(const FEventHandle& a_handle) {
 		if (!a_handle.IsValid()) return; // Check if the handle was actually distributed by subscribing to an event or if it was created by the user
 
@@ -101,6 +148,8 @@ public:
 #pragma endregion
 	// Call listeners and prune
 	void Broadcast(Args... args) {
+		// Trace the total time of the broadcast function
+		TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_TotalBroadcastTime);
 
 		// Check if should be routed through the network first
 		if (NetworkInterceptor && !m_isExecutingInterceptor) {
@@ -109,6 +158,10 @@ public:
 			// Returns true, if the interceptor successfully sent a network package.
 			// Stop execution -> the RPC will travel over the network and call 'Broadcast()' again
 			bool wasIntercepted = NetworkInterceptor(args...);
+
+			// Reset so future local broadcasts can fire
+			m_isExecutingInterceptor = false;
+
 			if (wasIntercepted) return;
 		}
 
@@ -135,18 +188,105 @@ public:
 		}
 
 		for (const TSharedPtr<IEventCallback<Args...>>& callback : callbacksToInvoke) {
-			if(callback->IsValid()) callback->Invoke(args...); // Object might have been destroyed by prior callback -> check validity
+			if (callback->IsValid()) {
+				// Trace the execution time of each individual listener
+				TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_ExecuteSingleListener);
+
+				callback->Invoke(args...); // Object might have been destroyed by prior callback -> check validity
+			}
+		}
+	}
+
+	void SlicedBroadcast(int32 MaxExecutionsPerFrame, Args... args) {
+		// Check if this should be routed through the network
+		if (SlicedNetworkInterceptor && !m_isExecutingInterceptor) {
+			m_isExecutingInterceptor = true;
+			bool wasIntercepted = SlicedNetworkInterceptor(MaxExecutionsPerFrame, args...);
+			m_isExecutingInterceptor = false;
+			if (wasIntercepted) return;
+		}
+
+		TArray<uint64> idsToInvoke; // Don't use 'TInlineAllocator' here, else 'MoveTemp' would perform a deep copy
+		{
+			FScopeLock lock(&m_mutex);
+			idsToInvoke.Reserve(m_callbacks.Num());
+			for (auto& pair : m_callbacks) {
+				if (pair.Value->IsValid()) idsToInvoke.Add(pair.Key);
+			}
+		}
+
+		if (idsToInvoke.IsEmpty()) return;
+
+		MaxExecutionsPerFrame = FMath::Max(MaxExecutionsPerFrame, 1); // Never go below 1, else timer would run forever
+
+		// Create a shared state block that survives across multiple frames
+		struct FTaskState {
+			TArray<uint64> IDs;
+			int32 CurrentIndex = 0;
+		};
+
+		TSharedPtr<FTaskState> taskState = MakeShared<FTaskState>();
+		taskState->IDs = MoveTemp(idsToInvoke);
+
+		// Create a heap-allocated shared pointer to hold the handles
+		TSharedPtr<FTSTicker::FDelegateHandle> safeHandle = MakeShared<FTSTicker::FDelegateHandle>();
+
+		*safeHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this, taskState, safeHandle, MaxExecutionsPerFrame, args...](float DeltaTime) -> bool {
+			// Trace the total time of the slice
+			TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_TotalSliceBroadcastTime);
+
+			int32 executedThisFrame = 0;
+
+			while (taskState->CurrentIndex < taskState->IDs.Num() && executedThisFrame < MaxExecutionsPerFrame) {
+				uint64 targetID = taskState->IDs[taskState->CurrentIndex];
+
+				// Check the callback map if the ID is still valid (not dead/unsubscribed)
+				TSharedPtr<IEventCallback<Args...>> callback{ nullptr };
+				{
+					FScopeLock lock(&m_mutex);
+					if (TSharedPtr<IEventCallback<Args...>>* foundCallback = m_callbacks.Find(targetID)) {
+						callback = *foundCallback;
+					}
+				}
+
+				if (callback && callback->IsValid()) {
+					// Trace the execution time of each individual listener
+					TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_ExecuteSingleListener);
+					callback->Invoke(args...);
+				}
+
+				taskState->CurrentIndex++;
+				executedThisFrame++;
+			}
+
+			bool runAgain = taskState->CurrentIndex < taskState->IDs.Num();
+
+			// Make sure to clean up the handle to avoid memory leaks
+			if (!runAgain) {
+				FScopeLock lock(&m_mutex);
+				m_asnycTickerHandles.RemoveSingleSwap(*safeHandle);
+			}
+
+			// Returns true, if hasn't reached end -> run lambda again
+			return runAgain;
+			}));
+
+		{
+			FScopeLock lock(&m_mutex);
+
+			// Store handle for later (in case event is destroyed before the ticker finishes)
+			m_asnycTickerHandles.Add(*safeHandle);
 		}
 	}
 
 	void Clear() {
 		FScopeLock lock(&m_mutex);
 		m_callbacks.Empty();
-		m_nextID = 0;
 	}
 
 	// A lambda for deciding whether the broadcast should be routed through the network
 	TFunction<bool(Args...)> NetworkInterceptor;
+	TFunction<bool(int32, Args...)> SlicedNetworkInterceptor;
 
 	int32 GetListenerCount() const { return m_callbacks.Num(); }
 
@@ -157,4 +297,7 @@ private:
 
 	// Thread safety
 	mutable FCriticalSection m_mutex; // allow locking in const methods
+
+	// Store the handles -> needed e.g., if object with event calls 'AsyncBroadcast' but is then destroyed, the ticker will try to fire a dead event
+	TArray<FTSTicker::FDelegateHandle> m_asnycTickerHandles;
 };
