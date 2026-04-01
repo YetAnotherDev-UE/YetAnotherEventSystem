@@ -11,5 +11,8 @@ public class YetAnotherEventTarget : TargetRules
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 
 		ExtraModuleNames.AddRange( new string[] { "YetAnotherEvent" } );
+
+        // Run our python script as a prebuild step
+        // PreBuildSteps.Add("python \"$(ProjectDir)\\UEventGenerator.py\"");
     }
 }

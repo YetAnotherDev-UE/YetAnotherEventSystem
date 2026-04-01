@@ -25,14 +25,16 @@ protected:
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 
 private:
-	void TurnLightOn();
+	void PrintOne();
+	void PrintTwo();
+	void PrintThree();
 
 private:
 	FEventHandle m_onLightSwitchTurnedOnHandle{};
 
 	UPROPERTY()
-	TObjectPtr<ULightComponent> m_attachedLight{ nullptr };
+	TObjectPtr<ULightComponent> AttachedLight{ nullptr };
 
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, meta = (DisplayName = "My Light Switch", AllowPrivateAccess = true), Category = "Own | Gameplay Light")
-	TObjectPtr<ALightSwitchActor> m_myLightSwitch{ nullptr };
+	TObjectPtr<ALightSwitchActor> MyLightSwitch{ nullptr };
 };

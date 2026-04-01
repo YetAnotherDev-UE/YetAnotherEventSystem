@@ -19,12 +19,6 @@ void ALightSwitchActor::Tick(float DeltaTime) {
 		UE_LOG(LogTemp, Warning, TEXT("Broadcast Event!"));
 
 		OnLightSwitchTurnedOn_One.Broadcast(); // Reacted to in Blueprint and C++
-
-		// Simple performance test (10.000 broadcasts)
-		for (int i = 0; i < 100000; ++i) {
-			OnLightSwitchTurnedOn_One.Broadcast();
-		}
-
 		bTriggeredOnce = true;
 	}
 }
