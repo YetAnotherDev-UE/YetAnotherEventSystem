@@ -15,6 +15,18 @@
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include <atomic>
 
+#if WITH_DEV_AUTOMATION_TESTS
+	#define ENABLE_TEVENT_PROFILING 0
+#else
+	#define ENABLE_TEVENT_PROFILING 1
+#endif
+
+#if ENABLE_TEVENT_PROFILING
+	#define TEVENT_PROFILER_SCOPE(Name) TRACE_CPUPROFILER_EVENT_SCOPE(Name)
+#else
+	#define TEVENT_PROFILER_SCOPE(Name)
+#endif
+
 #ifndef UEVENT
 #define UEVENT(...) // Prevent compiler complains
 #endif
@@ -27,96 +39,24 @@ struct FEventHandle
 };
 
 template<typename... Args>
-class IEventCallback {
-public:
-	virtual ~IEventCallback() = default;
-	virtual void Invoke(Args... InArgs) = 0;
-	virtual bool IsValid() const = 0; // A callback is invalid if e.g., a UObject died
-};
-
-// An event wrapper for UObjects (auto-detects death)
-template<typename TObjectClass, typename... Args>
-class TUObjectCallback : public IEventCallback<Args...> {
-public:
-	using MethodType = void (TObjectClass::*)(Args...); // Expects a pointer to a member-method type
-
-	TWeakObjectPtr<TObjectClass> WeakObj;
-	MethodType Method;
-
-	TUObjectCallback(TObjectClass* InObj, MethodType InMethod) : WeakObj(InObj), Method(InMethod) {}
-
-	virtual void Invoke(Args... InArgs) override {
-		if (TObjectClass* PointerToUObject = WeakObj.Get()) {
-			(PointerToUObject->*Method)(InArgs...);
-		}
-	}
-
-	virtual bool IsValid() const override {
-		return WeakObj.IsValid();
-	}
-};
-
-template<typename... Args>
-class TLambdaCallback : public IEventCallback<Args...> {
-public:
-	TFunction<void(Args...)> Func;
-
-	TLambdaCallback(TFunction<void(Args...)>&& InFunc) : Func(MoveTemp(InFunc)) {} // Prevent copy overhead
-
-	virtual void Invoke(Args... InArgs) override { Func(InArgs...); }
-	virtual bool IsValid() const override { return true; } // Needs to be managed by the user (Lambdas aren't tracked by the GC)
-};
-
-// An event wrapper for lambdas tied to a UObject's lifespan
-template<typename... Args>
-class TContextLambdaCallback : public IEventCallback<Args...> {
-public:
-	TWeakObjectPtr<UObject> ContextObj;
-	TFunction<void(Args...)> Func;
-
-	TContextLambdaCallback(UObject* InContext, TFunction<void(Args...)>&& InFunc)
-		: ContextObj(InContext), Func(MoveTemp(InFunc)) {
-	}
-
-	virtual void Invoke(Args... InArgs) override {
-		if (ContextObj.IsValid()) {
-			Func(InArgs...);
-		}
-	}
-
-	virtual bool IsValid() const override {
-		return ContextObj.IsValid();
-	}
-};
-
-// A lambda that fires once and then deletes itself
-template<typename... Args>
-class TOneShotContextLambdaCallback : public IEventCallback<Args...> {
-public:
-	TWeakObjectPtr<UObject> ContextObj;
-	TFunction<void(Args...)> Func;
-
-	TOneShotContextLambdaCallback(UObject* InContext, TFunction<void(Args...)>&& InFunc)
-		: ContextObj(InContext), Func(MoveTemp(InFunc)) {
-	}
-
-	virtual void Invoke(Args... InArgs) override {
-		if (!bHasFired && ContextObj.IsValid()) {
-			bHasFired = true; // Lock, so the callback can never fire again
-			Func(InArgs...);
-		}
-	}
-
-	virtual void IsValid() const override {
-		return !bHasFired && ContextObj.IsValid();
-	}
-
-private:
-	bool bHasFired{};
-};
-
-template<typename... Args>
 class TEvent {
+private:
+	// Data-oriented flat struct
+	struct FCallbackNode {
+		uint64 ID;
+		int32 Priority;
+		bool bContext;
+		bool bOneShot;
+
+		TWeakObjectPtr<UObject> ContextObject;
+		TFunction<void(Args...)> Callable;
+
+		bool IsValid() const {
+			if (bContext) return ContextObject.IsValid();
+			return true;
+		}
+	};
+
 public:
 	TEvent() = default;
 	~TEvent() {
@@ -158,22 +98,31 @@ public:
 	template<typename TObject>
 	FEventHandle SubscribeUObject(TObject* Obj, void(TObject::* Method)(Args...), int32 Priority = 0) {
 		check(Obj); // Fail Fast
+		TWeakObjectPtr<TObject> WeakObj = Obj;
+
+		// Capture the weak pointer and method in a lambda
+		TFunction<void(Args...)> Func = [WeakObj, Method](Args... InArgs) {
+			if (TObject* ValidObj = WeakObj.Get()) {
+				(ValidObj->*Method)(InArgs...);
+			}
+		};
+
 		FScopeLock Lock(&Mutex);
 
 		const uint64 Id = ++NextID; // Can never be 0 (atomic increment)
-		Callbacks.Emplace(Id, FCallbackNode{ Id, MakeShared<TUObjectCallback<TObject, Args...>>(Obj, Method), Priority });
-		bIsDirty.store(true, std::memory_order_release); // Flag dirty for sorting/caching
+		Callbacks.Emplace(Id, FCallbackNode{ Id, Priority, true, false, Obj, MoveTemp(Func) });
+		bIsDirty.store(true, std::memory_order_release); // Flag dirty for sorting/caching (deferred rebuilding)
 
 		return FEventHandle{ Id };
 	}
 
 	template<typename TCallable> requires (!TIsPointer<TCallable>::Value) // avoid ambiguity with function pointers
 		FEventHandle SubscribeLambda(TCallable&& InCallable, int32 Priority = 0) { // Subscription logic for lambdas
-		TFunction<void(Args...)> Fn(Forward<TCallable>(InCallable));
+		TFunction<void(Args...)> Func(Forward<TCallable>(InCallable));
 
 		FScopeLock Lock(&Mutex);
 		const uint64 Id = ++NextID;
-		Callbacks.Emplace(Id, FCallbackNode{ Id, MakeShared<TLambdaCallback<Args...>>(MoveTemp(Fn)), Priority });
+		Callbacks.Emplace(Id, FCallbackNode{ Id, Priority, false, false, nullptr, MoveTemp(Func) });
 		bIsDirty.store(true, std::memory_order_release); // Flag dirty for sorting/caching
 
 		return FEventHandle{ Id };
@@ -183,11 +132,11 @@ public:
 		FEventHandle SubscribeLambda(UObject* ContextObject, TCallable&& InCallable, int32 Priority = 0) {
 		check(ContextObject); // Ensure the context is valid at the time of subscription
 
-		TFunction<void(Args...)> Fn(Forward<TCallable>(InCallable));
+		TFunction<void(Args...)> Func(Forward<TCallable>(InCallable));
 
 		FScopeLock Lock(&Mutex);
 		const uint64 Id = ++NextID;
-		Callbacks.Emplace(Id, FCallbackNode{ Id, MakeShared<TContextLambdaCallback<Args...>>(ContextObject, MoveTemp(Fn)), Priority });
+		Callbacks.Emplace(Id, FCallbackNode{ Id, Priority, true, false, ContextObject, MoveTemp(Func) });
 		bIsDirty.store(true, std::memory_order_release); // Flag dirty for sorting/caching
 
 		return FEventHandle{ Id };
@@ -198,11 +147,17 @@ public:
 		FEventHandle SubscribeOnce(UObject* ContextObject, TCallable&& InCallable, int32 Priority = 0) {
 		check(ContextObject); // Ensure the context is valid at the time of subscription
 
-		TFunction<void(Args...)> Fn(Forward<TCallable>(InCallable));
+		TSharedPtr<std::atomic<bool>> bHasFired = MakeShared<std::atomic<bool>>(false);
+		TFunction<void(Args...)> Func = [bHasFired, Callable = Forward<TCallable>(InCallable)](Args... InArgs) mutable {
+			bool bExpected = false;
+			if (bHasFired->compare_exchange_strong(bExpected, true)) { // Guarantee only the first thread will swap this to true
+				Callable(InArgs...);
+			}
+		};
 
 		FScopeLock Lock(&Mutex);
 		const uint64 Id = ++NextID;
-		Callbacks.Emplace(Id, FCallbackNode{ Id, MakeShared<TOneShotContextLambdaCallback<Args...>>(ContextObject, MoveTemp(Fn)), Priority });
+		Callbacks.Emplace(Id, FCallbackNode{ Id, Priority, true, true, ContextObject, MoveTemp(Func) });
 		bIsDirty.store(true, std::memory_order_release); // Flag dirty for sorting/caching
 
 		return FEventHandle{ Id };
@@ -221,7 +176,7 @@ public:
 	// Call listeners and prune
 	void Broadcast(Args... InArgs) {
 		// Trace the total time of the broadcast function
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_TotalBroadcastTime);
+		TEVENT_PROFILER_SCOPE(TEvent_TotalBroadcastTime);
 
 		// Check if should be routed through the network first
 		bool ExpectedInterceptor = false;
@@ -236,20 +191,22 @@ public:
 			if (WasIntercepted) return;
 		}
 
-		TArray<FCallbackNode, TInlineAllocator<16>> CallbacksToInvoke;
-
+		TSharedPtr<TArray<FCallbackNode>> LocalCache{};
 		{ // Only lock the thread to check if a callback is valid or to modify the collection (the actual callbacks can be outside the lock -> prevents deadlocks)
 			FScopeLock Lock(&Mutex);
 
 			// Only rebuild the cache and sort the array if someone newly subscribed/unsubscribed
 			// NOTE: Don't do this instantly after subscribing, to prevent cases where we might subscribe in a loop and sort after each iteration.
 			if (bIsDirty.exchange(false, std::memory_order_acq_rel)) {
-				SortedCache.Empty(Callbacks.Num());
+
+				// Create a new array
+				TSharedPtr<TArray<FCallbackNode>> NewCache = MakeShared<TArray<FCallbackNode>>();
+				NewCache->Reserve(Callbacks.Num());
 
 				// Use an iterator to safely remove dead listeners
 				for (auto It = Callbacks.CreateIterator(); It; ++It) {
-					if (It.Value().Callback->IsValid()) {
-						SortedCache.Add(It.Value());
+					if (It.Value().IsValid()) {
+						NewCache->Add(It.Value());
 					}
 					else {
 						It.RemoveCurrent();
@@ -257,24 +214,48 @@ public:
 				}
 
 				// Sort once
-				SortedCache.Sort([](const FCallbackNode& A, const FCallbackNode& B) {
+				NewCache->Sort([](const FCallbackNode& A, const FCallbackNode& B) {
 					return A.Priority > B.Priority;
 					});
+
+				// Swap the pointer to the new, fully updated array
+				ImmutableCache = NewCache;
 			}
 
-			// Copy the sorted cache into our local execution array.
-			CallbacksToInvoke.Append(SortedCache);
+			// Copy the pointer (to ensure that if the ImmutableCache is replaced by another thread, the array we loop over still stays in RAM)
+			LocalCache = ImmutableCache; // RCU snapshot
 		}
 
-		for (const FCallbackNode& Node : CallbacksToInvoke) {
-			if (Node.Callback->IsValid()) { // Might be invalid, even after pruning dead listeners, if an earlier callback destroyed the object for a later callback
+		if (!LocalCache.IsValid() || LocalCache->IsEmpty()) return;
+
+		// Store the IDs of one-Shots events that fired
+		TArray<uint64, TInlineAllocator<16>> ExpiredOneShotIDs;
+
+		// This now has zero pointer chasing, zero vtable lookups and zero cache misses
+		for (const FCallbackNode& Node : *LocalCache) {
+			if (Node.IsValid()) { // Might be invalid, even after pruning dead listeners, if an earlier callback destroyed the object for a later callback
 				// Trace the execution time of each individual listener
-				TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_ExecuteSingleListener);
-				Node.Callback->Invoke(InArgs...);
+				TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
+				Node.Callable(InArgs...);
+
+				if (Node.bOneShot) {
+					ExpiredOneShotIDs.Add(Node.ID);
+				}
 			}
 			else { // Listener died during this broadcast frame, flag for cleanup on the next broadcast
 				bIsDirty.store(true, std::memory_order_release); // Technically outside of a lock, but is atomic
 			}
+		}
+
+		// Clean one-shot events (do this in a batch, instead of locking every time we fire a one-shot event)
+		// NOTE: Technically this could have a potential risk, where multiple threads call Broadcast() at the same time
+		// before the one shot is being removed here -> this is why "bHasFired" was introduced to the one shot lambda
+		if (ExpiredOneShotIDs.Num() > 0) {
+			FScopeLock Lock(&Mutex);
+			for (uint64 ExpiredID : ExpiredOneShotIDs) {
+				Callbacks.Remove(ExpiredID);
+			}
+			bIsDirty.store(true, std::memory_order_release);
 		}
 	}
 
@@ -287,83 +268,84 @@ public:
 			if (WasIntercepted) return;
 		}
 
-		TArray<uint64> IdsToInvoke; // Don't use 'TInlineAllocator' here, else 'MoveTemp' would perform a deep copy
+		// Do the same as in Broadcast()
+		TSharedPtr<TArray<FCallbackNode>> LocalCache{};
 		{
 			FScopeLock Lock(&Mutex);
-
-			// Only rebuild the cache if changed
 			if (bIsDirty.exchange(false, std::memory_order_acq_rel)) {
-				SortedCache.Empty(Callbacks.Num());
+				TSharedPtr<TArray<FCallbackNode>> NewCache = MakeShared<TArray<FCallbackNode>>();
+				NewCache->Reserve(Callbacks.Num());
 
 				for (auto It = Callbacks.CreateIterator(); It; ++It) {
-					if (It.Value().Callback->IsValid()) {
-						SortedCache.Add(It.Value());
+					if (It.Value().IsValid()) {
+						NewCache->Add(It.Value());
 					}
 					else {
 						It.RemoveCurrent();
 					}
 				}
 
-				SortedCache.Sort([](const FCallbackNode& A, const FCallbackNode& B) {
+				NewCache->Sort([](const FCallbackNode& A, const FCallbackNode& B) {
 					return A.Priority > B.Priority;
-					});
-			}
+					}); 
 
-			// Populate the final array with the sorted IDs
-			IdsToInvoke.Reserve(Callbacks.Num());
-			for (const FCallbackNode& node : SortedCache) {
-				IdsToInvoke.Add(node.ID);
+				ImmutableCache = NewCache;
 			}
+			LocalCache = ImmutableCache;
 		}
-
-		if (IdsToInvoke.IsEmpty()) return;
+		if (!LocalCache.IsValid() || LocalCache->IsEmpty()) return; // IsEmpty() is absolutely crucial here compared to in Broadcast(), to skip the FPSTicker logic
 
 		MaxExecutionsPerFrame = FMath::Max(MaxExecutionsPerFrame, 1); // Never go below 1, else timer would run forever
 
 		// Create a shared state block that survives across multiple frames
 		struct FTaskState {
-			TArray<uint64> IDs;
+			TSharedPtr<TArray<FCallbackNode>> ImmutableData;
 			int32 CurrentIndex = 0;
 		};
 
 		TSharedPtr<FTaskState> TaskState = MakeShared<FTaskState>();
-		TaskState->IDs = MoveTemp(IdsToInvoke);
+		TaskState->ImmutableData = LocalCache; // Store a reference of the immutable cache, so it's kept alive across multiple frames
 
 		// Create a shared pointer to hold the handles
 		TSharedPtr<FTSTicker::FDelegateHandle> SafeHandle = MakeShared<FTSTicker::FDelegateHandle>();
 
 		*SafeHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this, TaskState, SafeHandle, MaxExecutionsPerFrame, InArgs...](float DeltaTime) -> bool {
 			// Trace the total time of the slice
-			TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_TotalSliceBroadcastTime);
+			TEVENT_PROFILER_SCOPE(TEvent_TotalSliceBroadcastTime);
 
 			int32 ExecutedThisFrame = 0;
+			const TArray<FCallbackNode>& DataArray = *(TaskState->ImmutableData);
 
-			while (TaskState->CurrentIndex < TaskState->IDs.Num() && ExecutedThisFrame < MaxExecutionsPerFrame) {
-				uint64 TargetID = TaskState->IDs[TaskState->CurrentIndex];
+			while (TaskState->CurrentIndex < DataArray.Num() && ExecutedThisFrame < MaxExecutionsPerFrame) {
+				const FCallbackNode& TargetNode = DataArray[TaskState->CurrentIndex];
 
-				// Check if the ID is still valid (not dead/unsubscribed)
-				TSharedPtr<IEventCallback<Args...>> Callback{ nullptr };
+				// Verify the listener wasn't manually unsubscribed between frames
+				bool bStillSubscribed = false;
 				{
 					FScopeLock Lock(&Mutex);
-					if (FCallbackNode* foundNode = Callbacks.Find(TargetID)) {
-						Callback = foundNode->Callback;
-					}
+					bStillSubscribed = Callbacks.Contains(TargetNode.ID); // O(1)
 				}
 
-				if (Callback && Callback->IsValid()) {
-					// Trace the execution time of each individual listener
-					TRACE_CPUPROFILER_EVENT_SCOPE(TEvent_ExecuteSingleListener);
-					Callback->Invoke(InArgs...);
+				if (bStillSubscribed && TargetNode.IsValid()) {
+					TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
+					TargetNode.Callable(InArgs...);
+					if (TargetNode.IsOneShot) {
+						// Immediately delete it from the master dictionary -> won't be rebuild
+						FScopeLock Lock(&Mutex);
+						Callbacks.Remove(TargetNode.ID);
+						bIsDirty.store(true, std::memory_order_release);
+					}
 				}
-				else if (Callback && !Callback->IsValid()) {
-					bIsDirty.store(true, std::memory_order_release); //  Rebuilt on the next standard broadcast
+				else {
+					// It died or unsubscribed, flag for cleanup
+					bIsDirty.store(true, std::memory_order_release);
 				}
 
 				TaskState->CurrentIndex++;
 				ExecutedThisFrame++;
 			}
 
-			bool RunAgain = TaskState->CurrentIndex < TaskState->IDs.Num();
+			bool RunAgain = TaskState->CurrentIndex < DataArray.Num();
 
 			// Make sure to clean up the handle to avoid memory leaks
 			if (!RunAgain) {
@@ -396,14 +378,12 @@ public:
 	int32 GetListenerCount() const { return Callbacks.Num(); }
 
 private:
-	struct FCallbackNode {
-		uint64 ID; // Needed for ID extraction during 'SlicedBroadcast' cache reads
-		TSharedPtr<IEventCallback<Args...>> Callback;
-		int32 Priority;
-	};
+	TMap<uint64, FCallbackNode> Callbacks{};
 
-	TMap<uint64, FCallbackNode> Callbacks;
-	TArray<FCallbackNode> SortedCache; // Fast, pre-sorted array
+	// Never removed from/added to -> if the list of listeners changes, a new array is allocated and this pointer is swapped to it.
+	TSharedPtr<TArray<FCallbackNode>> ImmutableCache{};
+
+	// Rebuilding
 	std::atomic<bool> bIsDirty{ false };
 
 	// Identification
