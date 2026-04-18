@@ -19,22 +19,7 @@ class YETANOTHEREVENT_API AGameplayLightActor : public AActor
 public:	
 	AGameplayLightActor();
 
-protected:
-	virtual void BeginPlay() override;
-	virtual void Tick(float DeltaTime) override;
-	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
-
 private:
-	void PrintOne();
-	void PrintTwo();
-	void PrintThree();
-
-private:
-	FEventHandle m_onLightSwitchTurnedOnHandle{};
-
-	UPROPERTY()
-	TObjectPtr<ULightComponent> AttachedLight{ nullptr };
-
-	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, meta = (DisplayName = "My Light Switch", AllowPrivateAccess = true), Category = "Own | Gameplay Light")
-	TObjectPtr<ALightSwitchActor> MyLightSwitch{ nullptr };
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, meta = (AllowPrivateAccess = true), Category = "Own|Gameplay Light")
+	TObjectPtr<ALightSwitchActor> AssignedLightSwitch{ nullptr };
 };

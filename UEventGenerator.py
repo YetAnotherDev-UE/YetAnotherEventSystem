@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import hashlib
 
 PATTERN = re.compile( # compile text pattern into object once
 	r"(UEVENT\s*\((.*?)\)\s*TEvent<(.*?)>\s+(\w+)(?:\{\})?;)"
@@ -7,27 +9,39 @@ PATTERN = re.compile( # compile text pattern into object once
     re.DOTALL
 )
 
-def process_uevents(file_path):
-    with open(file_path, 'r') as file:
-        content = file.read()
+CACHE_FILE = os.path.join(os.path.dirname(__file__), ".event_cache.json")
 
-    # instantly stop, if there's no 'UEVENT' -> since Regex is computationally heavy
-    if "UEVENT" not in content:
-        return
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    return {}
 
-    # Automatically detect if this class is network-capable (only actors and actor components are)
-    is_network_capable = any(base in content for base in ["public AActor", "public UActorComponent"])
+def save_cache(cache):
+    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, indent=4)
+
+def process_uevents(file_path, cached_hash):
+    with open(file_path, 'r', encoding='utf-8') as file: 
+        original_content = file.read()
+
+    # Fast-Fail: No events and no old code to clean up
+    if "UEVENT" not in original_content and "UEVENT Generated Code" not in original_content:
+        return False, ""
 
     # Clean up regions (if run multiple times)
-    content = re.sub(r"\s*#pragma region UEVENT Generated Code \(DO NOT TOUCH!\).*?\n\tprivate:\n\t#pragma endregion\n*", "\n", content, flags=re.DOTALL)
+    content = re.sub(r"\s*#pragma region UEVENT Generated Code \(DO NOT TOUCH!\).*?\n\tprivate:\n\t#pragma endregion\n*", "\n", original_content, flags=re.DOTALL)
 
-    # Find UEVENT definitions
     matches = list(PATTERN.finditer(content))
-    if not matches:
-        with open(file_path, 'w') as file:
-            file.write(content)
-        return
+    event_fingerprint = "".join(m.group(0) for m in matches) # Create a unique string from the signature
+    current_hash = hashlib.md5(event_fingerprint.encode('utf-8')).hexdigest()
 
+    # Fast-Fail: Abort, if events haven't changed
+    if current_hash == cached_hash:
+        return False, current_hash
+
+    # NOTE: At this point we know the events actually changed
+    is_network_capable = any(base in original_content for base in ["public AActor", "public UActorComponent"])
     generated_blocks = []
 
     # Function to safely split commas, ignoring commas inside nested < > brackets (e.g., TMap<int32, float>)
@@ -74,15 +88,12 @@ def process_uevents(file_path):
             signature += f", {t}, Param{i+1}" # e.g., float, Param1, int32, Param2 
         signature += ");"
 
-        # Pre-calculate parameter string for Blueprint Callables
         call_params = ", ".join([f"{t} Param{i+1}" for i, t in enumerate(type_list)])
         call_args = ", ".join([f"Param{i+1}" for i in range(len(type_list))])
 
         sliced_params = f"{call_params}, int32 MaxExecutionsPerFrame = 10" if call_params else "int32 MaxExecutionsPerFrame = 10"
         sliced_args = f"MaxExecutionsPerFrame, {call_args}" if call_args else "MaxExecutionsPerFrame"
-
-        # Don't use default values in RPCs to avoid UHT issues
-        rpc_sliced_params = f"int32 MaxExecutionsPerFrame, {call_params}" if call_params else "int32 MaxExecutionsPerFrame"
+        rpc_sliced_params = f"int32 MaxExecutionsPerFrame, {call_params}" if call_params else "int32 MaxExecutionsPerFrame" # Don't use default values in RPCs to avoid UHT issues
 
         bp_callable_block = ""
         if "BlueprintCallable" in uevent_args:
@@ -161,7 +172,7 @@ def process_uevents(file_path):
                 print(f"WARNING: Skipping network generation for {name} in {os.path.basename(file_path)}: Class is not an AActor or UActorComponent.")
                 interceptor_logic = ""
 
-        # Use IIFE to execute subscription during object construction
+        # Use IIFE to subscribe blueprint event call
         generated_blocks.append(
             f"\n\t#pragma region Generated Blueprint Delegate for {name}\n"
             f"\tpublic:\n"
@@ -196,12 +207,48 @@ def process_uevents(file_path):
         else:
             print(f"WARNING: Could not find closing class brace in {os.path.basename(file_path)}")
 
-    with open(file_path, 'w') as file:
+    # Only write to the file, if the content actually changed
+    if content != original_content:
+        with open(file_path, 'w', encoding='utf-8') as file:
             file.write(content)
-    print(f"Processed UEVENTs in: {os.path.basename(file_path)}")
+        print(f"Processed UEVENTs in: {os.path.basename(file_path)}")
+        return True, current_hash
 
-source_dir = os.path.join(os.path.dirname(__file__), "Source") # Go through every folder and sub-folder
-for root, _, files in os.walk(source_dir):
-    for file_name in files:
-        if file_name.endswith(".h"):
-            process_uevents(os.path.join(root, file_name))
+    return False, current_hash
+
+def main():
+    source_dir = os.path.join(os.path.dirname(__file__), "Source")  # Go through every folder and sub-folder
+    cache = load_cache()
+    updated_cache = {}
+    files_processed = 0
+
+    for root, _, files in os.walk(source_dir):
+        for file_name in files:
+            if file_name.endswith(".h"):
+                file_path = os.path.join(root, file_name)
+                current_mtime = os.path.getmtime(file_path)
+
+                # Get the data (if exists)
+                file_cache_data = cache.get(str(file_path), {"mtime": 0, "hash": ""})
+
+                if file_cache_data["mtime"] == current_mtime:
+                    updated_cache[str(file_path)] = file_cache_data
+                    continue
+
+                # File was modified -> run parser
+                was_modified, new_hash = process_uevents(file_path, file_cache_data["hash"])
+
+                # Update cache
+                final_mtime = os.path.getmtime(file_path) if was_modified else current_mtime
+                updated_cache[str(file_path)] = {"mtime": final_mtime, "hash": new_hash}
+                files_processed += 1
+
+    save_cache(updated_cache)
+
+    if files_processed > 0:
+        print(f"UEVENT scan complete. Checked {files_processed} modified files.")
+    else:
+        print("UEVENT scan complete. No files were modified since the last run.")
+
+if __name__ == "__main__":
+    main()

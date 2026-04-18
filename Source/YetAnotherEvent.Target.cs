@@ -1,7 +1,10 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-using UnrealBuildTool;
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using UnrealBuildTool;
 
 public class YetAnotherEventTarget : TargetRules
 {
@@ -12,7 +15,11 @@ public class YetAnotherEventTarget : TargetRules
 
 		ExtraModuleNames.AddRange( new string[] { "YetAnotherEvent" } );
 
-        // Run our python script as a prebuild step
-        // PreBuildSteps.Add("python \"$(ProjectDir)\\UEventGenerator.py\"");
+        // Determine host OS
+        bool bWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        string PythonCommand = bWindows ? "python" : "python3";
+
+        // Use forward slashes: UBT will automatically normalize them for the specific OS (POSIX standard)
+        PreBuildSteps.Add($"{PythonCommand} \"$(ProjectDir)/UEventGenerator.py\"");
     }
 }

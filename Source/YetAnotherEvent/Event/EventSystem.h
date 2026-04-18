@@ -32,10 +32,17 @@
 #endif
 
 // Type-safe struct
-struct FEventHandle
-{
+struct FEventHandle {
 	uint64 Id = 0;
 	bool IsValid() const { return Id != 0; } // Can never be 0 if used for an event
+
+	bool operator==(const FEventHandle& Other) const {
+		return Id == Other.Id;
+	}
+
+	friend uint32 GetTypeHash(const FEventHandle& Handle) {
+		return GetTypeHash(Handle.Id);
+	}
 };
 
 template<typename... Args>
@@ -329,7 +336,7 @@ public:
 				if (bStillSubscribed && TargetNode.IsValid()) {
 					TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
 					TargetNode.Callable(InArgs...);
-					if (TargetNode.IsOneShot) {
+					if (TargetNode.bOneShot) {
 						// Immediately delete it from the master dictionary -> won't be rebuild
 						FScopeLock Lock(&Mutex);
 						Callbacks.Remove(TargetNode.ID);

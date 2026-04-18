@@ -16,22 +16,38 @@ class YETANOTHEREVENT_API ALightSwitchActor : public AActor
 public:	
 	ALightSwitchActor();
 
-protected:
-	virtual void BeginPlay() override;
-	virtual void Tick(float DeltaTime) override;
-
 public:
+	UEVENT(BlueprintCallable)
+	TEvent<bool> OnLightSwitchToggled{};
 
-	TEvent<> OnLightSwitchTurnedOn_One{};
-	
-	TEvent<bool> OnLightSwitchTurnedOn_Two{};
-	
-	TEvent<int32> OnLightSwitchTurnedOn_Three{};
+	#pragma region UEVENT Generated Code (DO NOT TOUCH!)
 
-	TEvent<bool, float> OnLightSwitchTurnedOn_Four{};
-		
-	TEvent<> OnLightSwitchTurnedOn_Five{};
 
-private:
-	bool bTriggeredOnce{};
+	#pragma region Generated Blueprint Delegate for OnLightSwitchToggled
+	public:
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLightSwitchToggledBP, bool, Param1);
+	UPROPERTY(BlueprintAssignable, Category = "Events")
+	FOnLightSwitchToggledBP OnLightSwitchToggled_BP;
+	private:
+	uint8 _AutoBind_OnLightSwitchToggled = [this]() -> uint8 {
+		OnLightSwitchToggled.SubscribeLambda([this](auto&&... args) {
+			OnLightSwitchToggled_BP.Broadcast(Forward<decltype(args)>(args)...);
+		});
+		return 0;
+	}();
+	public:
+	// Auto-Generated Blueprint Callables
+	UFUNCTION(BlueprintCallable, Category = "Events|OnLightSwitchToggled", meta = (DisplayName = "Broadcast OnLightSwitchToggled"))
+	void BP_Broadcast_OnLightSwitchToggled(bool Param1) {
+		OnLightSwitchToggled.Broadcast(Param1);
+	}
+
+	UFUNCTION(BlueprintCallable, Category = "Events|OnLightSwitchToggled", meta = (DisplayName = "Sliced Broadcast OnLightSwitchToggled", AdvancedDisplay = "MaxExecutionsPerFrame"))
+	void BP_SlicedBroadcast_OnLightSwitchToggled(bool Param1, int32 MaxExecutionsPerFrame = 10) {
+		OnLightSwitchToggled.SlicedBroadcast(MaxExecutionsPerFrame, Param1);
+	}
+
+	#pragma endregion
+	private:
+	#pragma endregion
 };
