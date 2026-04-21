@@ -1,10 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Runtime.InteropServices;
 using UnrealBuildTool;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 public class YetAnotherEventEditorTarget : TargetRules
 {

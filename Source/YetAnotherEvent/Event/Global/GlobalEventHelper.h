@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "../EventSystem.h"
+#include "GlobalEventSubsystem.h"
 #include "GameplayTagContainer.h"
 #include "StructUtils/InstancedStruct.h"
 
@@ -17,4 +19,34 @@ class YETANOTHEREVENT_API UGlobalEventHelper : public UBlueprintFunctionLibrary
 public:
 	UFUNCTION(BlueprintCallable, meta = (AutoCreateRefTerm = "Payload", WorldContext = "WorldContextObject"), Category = "Own|Global Events")
 	static void BroadcastGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, UObject* Sender = nullptr, const FInstancedStruct& Payload = FInstancedStruct());
+
+	template<typename TCallable> requires (!TIsPointer<TCallable>::Value)
+	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, UObject* ContextObject, TCallable&& InCallable) {
+		if (WorldContextObject) {
+			if (UWorld* World = WorldContextObject->GetWorld()) {
+				if (UGameInstance* GameInstance = World->GetGameInstance()) {
+					if (UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>()) {
+						return EventSystem->SubscribeToTag(Tag, ContextObject, Forward<TCallable>(InCallable));
+					}
+				}
+			}
+		}
+		return FEventHandle{}; // Return an invalid handle if it fails
+	}
+
+	template<typename TObject>
+	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, TObject* ContextObject, void(TObject::* Method)(UObject*, const FInstancedStruct&)) {
+		if (WorldContextObject) {
+			if (UWorld* World = WorldContextObject->GetWorld()) {
+				if (UGameInstance* GameInstance = World->GetGameInstance()) {
+					if (UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>()) {
+						return EventSystem->SubscribeToTag(Tag, ContextObject, Method);
+					}
+				}
+			}
+		}
+		return FEventHandle{};
+	}
+
+	static void UnsubscribeFromGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, FEventHandle Handle);
 };

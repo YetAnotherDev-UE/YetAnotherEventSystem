@@ -308,15 +308,17 @@ public:
 		struct FTaskState {
 			TSharedPtr<TArray<FCallbackNode>> ImmutableData;
 			int32 CurrentIndex = 0;
+			TTuple<typename TDecay<Args>::Type...> CopiedArgs;
 		};
 
 		TSharedPtr<FTaskState> TaskState = MakeShared<FTaskState>();
 		TaskState->ImmutableData = LocalCache; // Store a reference of the immutable cache, so it's kept alive across multiple frames
+		TaskState->CopiedArgs = MakeTuple(InArgs...); // Deep copy
 
 		// Create a shared pointer to hold the handles
 		TSharedPtr<FTSTicker::FDelegateHandle> SafeHandle = MakeShared<FTSTicker::FDelegateHandle>();
 
-		*SafeHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this, TaskState, SafeHandle, MaxExecutionsPerFrame, InArgs...](float DeltaTime) -> bool {
+		*SafeHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this, TaskState, SafeHandle, MaxExecutionsPerFrame](float DeltaTime) -> bool {
 			// Trace the total time of the slice
 			TEVENT_PROFILER_SCOPE(TEvent_TotalSliceBroadcastTime);
 
@@ -335,7 +337,10 @@ public:
 
 				if (bStillSubscribed && TargetNode.IsValid()) {
 					TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
-					TargetNode.Callable(InArgs...);
+					TaskState->CopiedArgs.ApplyAfter([&TargetNode](auto&&... UnpackedArgs) {
+						TargetNode.Callable(Forward<decltype(UnpackedArgs)>(UnpackedArgs)...);
+					});
+		
 					if (TargetNode.bOneShot) {
 						// Immediately delete it from the master dictionary -> won't be rebuild
 						FScopeLock Lock(&Mutex);

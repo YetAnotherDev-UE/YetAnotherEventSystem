@@ -11,3 +11,11 @@ void UGlobalEventSubsystem::BroadcastByTag(FGameplayTag Tag, UObject* Sender, co
 		}
 	}
 }
+
+void UGlobalEventSubsystem::Unsubscribe(FGameplayTag Tag, FEventHandle Handle) {
+	if (TSharedPtr<TEvent<UObject*, const FInstancedStruct&>>* FoundEventPointer = TaggedEvents.Find(Tag)) {
+		if (FoundEventPointer->IsValid()) {
+			(*FoundEventPointer)->Unsubscribe(Handle);
+		}
+	}
+}

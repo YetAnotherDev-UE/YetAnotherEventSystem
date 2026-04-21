@@ -7,11 +7,11 @@
 #include "StructUtils/InstancedStruct.h"
 
 #include "CoreMinimal.h"
-#include "Subsystems/WorldSubsystem.h"
+#include "Subsystems/GameInstanceSubsystem.h"
 #include "GlobalEventSubsystem.generated.h"
 
 UCLASS()
-class YETANOTHEREVENT_API UGlobalEventSubsystem : public UWorldSubsystem
+class YETANOTHEREVENT_API UGlobalEventSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
 
@@ -43,6 +43,8 @@ public:
 
 		return EventPtr->SubscribeUObject(ContextObject, Method);
 	}
+
+	void Unsubscribe(FGameplayTag Tag, FEventHandle Handle);
 
 private:
 	// Maps a tag to a shared pointer holding the event

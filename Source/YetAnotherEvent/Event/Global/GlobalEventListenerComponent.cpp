@@ -3,6 +3,7 @@
 #include "GlobalEventListenerComponent.h"
 
 #include "GlobalEventSubsystem.h"
+#include "GlobalEventHelper.h"
 
 UGlobalEventListenerComponent::UGlobalEventListenerComponent() {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -11,16 +12,24 @@ UGlobalEventListenerComponent::UGlobalEventListenerComponent() {
 void UGlobalEventListenerComponent::BeginPlay() {
 	Super::BeginPlay();
 
-	UGlobalEventSubsystem* EventSystem = GetWorld()->GetSubsystem<UGlobalEventSubsystem>();
-	if (!EventSystem) return;
-
 	// Subscribe to all selected tags
 	for (const FGameplayTag& SelectedTag : TagsToListenFor) {
-		EventSystem->SubscribeToTag(SelectedTag, this, [this, SelectedTag](UObject* Sender, const FInstancedStruct& Payload) {
-			// Call our event
+		
+		FEventHandle Handle = UGlobalEventHelper::SubscribeToGlobalEvent(this, SelectedTag, this, [this, SelectedTag](UObject* Sender, const FInstancedStruct& Payload) {
 			OnGlobalEventFired.Broadcast(SelectedTag, Sender, Payload);
-		});
+			});
+		
+		ActiveHandles.Add(SelectedTag, Handle);
 	}
+}
+
+void UGlobalEventListenerComponent::EndPlay(EEndPlayReason::Type EndPlayReason) {
+	for (const auto& Pair : ActiveHandles) {
+		UGlobalEventHelper::UnsubscribeFromGlobalEvent(this, Pair.Key, Pair.Value);
+	}
+	ActiveHandles.Empty();
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void UGlobalEventListenerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) {

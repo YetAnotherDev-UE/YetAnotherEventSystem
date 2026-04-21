@@ -19,11 +19,14 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 public:	
 	UEVENT()
 	TEvent<FGameplayTag, UObject*, const FInstancedStruct&> OnGlobalEventFired{};
+
+	TMap<FGameplayTag, FEventHandle> ActiveHandles{};
 
 private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true), Category = "Events")
