@@ -19,6 +19,12 @@ class YETANOTHEREVENT_API AGameplayLightActor : public AActor
 public:	
 	AGameplayLightActor();
 
+protected:
+	virtual void BeginPlay() override;
+
+private:
+	void DoSomething(bool Value);
+
 private:
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, meta = (AllowPrivateAccess = true), Category = "Own|Gameplay Light")
 	TObjectPtr<ALightSwitchActor> AssignedLightSwitch{ nullptr };

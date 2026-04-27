@@ -22,30 +22,28 @@ public:
 
 	template<typename TCallable> requires (!TIsPointer<TCallable>::Value)
 	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, UObject* ContextObject, TCallable&& InCallable) {
-		if (WorldContextObject) {
-			if (UWorld* World = WorldContextObject->GetWorld()) {
-				if (UGameInstance* GameInstance = World->GetGameInstance()) {
-					if (UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>()) {
-						return EventSystem->SubscribeToTag(Tag, ContextObject, Forward<TCallable>(InCallable));
-					}
-				}
-			}
-		}
-		return FEventHandle{}; // Return an invalid handle if it fails
+		if (!WorldContextObject) return FEventHandle{}; // Return an invalid handle if it fails
+		UWorld* World = WorldContextObject->GetWorld();
+		if (!World) return FEventHandle{};
+		UGameInstance* GameInstance = World->GetGameInstance();
+		if (!GameInstance) return FEventHandle{};
+		UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>();
+		if (!EventSystem) return FEventHandle{};
+
+		return EventSystem->SubscribeToTag(Tag, ContextObject, Forward<TCallable>(InCallable));
 	}
 
 	template<typename TObject>
 	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, TObject* ContextObject, void(TObject::* Method)(UObject*, const FInstancedStruct&)) {
-		if (WorldContextObject) {
-			if (UWorld* World = WorldContextObject->GetWorld()) {
-				if (UGameInstance* GameInstance = World->GetGameInstance()) {
-					if (UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>()) {
-						return EventSystem->SubscribeToTag(Tag, ContextObject, Method);
-					}
-				}
-			}
-		}
-		return FEventHandle{};
+		if (!WorldContextObject) return FEventHandle{}; // Return an invalid handle if it fails
+		UWorld* World = WorldContextObject->GetWorld();
+		if (!World) return FEventHandle{};
+		UGameInstance* GameInstance = World->GetGameInstance();
+		if (!GameInstance) return FEventHandle{};
+		UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>();
+		if (!EventSystem) return FEventHandle{};
+
+		return EventSystem->SubscribeToTag(Tag, ContextObject, Method);
 	}
 
 	static void UnsubscribeFromGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, FEventHandle Handle);

@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "GlobalEventGate.h"
 #include "../EventSystem.h"
 #include "GameplayTagContainer.h"
 #include "StructUtils/InstancedStruct.h"
@@ -24,26 +25,49 @@ protected:
 
 public:	
 	UEVENT()
-	TEvent<FGameplayTag, UObject*, const FInstancedStruct&> OnGlobalEventFired{};
+	TEvent<FGameplayTag, UObject*, const FInstancedStruct&> OnReceivedGlobalEvent{};
 
-	TMap<FGameplayTag, FEventHandle> ActiveHandles{};
+	UEVENT()
+	TEvent<> OnPassedGlobalEventGate{};
 
 private:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true), Category = "Events")
-	FGameplayTagContainer TagsToListenFor;
+	UPROPERTY(EditAnywhere, Category = "Events")
+	FGlobalEventGate GlobalEventGate{};
+
+	UPROPERTY(EditAnywhere, Category = "Events")
+	bool bResetGateWhenPassed{true};
+
+	FGameplayTagContainer ReceivedEvents{};
+
+	TMap<FGameplayTag, FEventHandle> ActiveHandles{};
 
 	#pragma region UEVENT Generated Code (DO NOT TOUCH!)
 
 
-	#pragma region Generated Blueprint Delegate for OnGlobalEventFired
+	#pragma region Generated Blueprint Delegate for OnReceivedGlobalEvent
 	public:
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnGlobalEventFiredBP, FGameplayTag, Param1, UObject*, Param2, const FInstancedStruct&, Param3);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnReceivedGlobalEventBP, FGameplayTag, Param1, UObject*, Param2, const FInstancedStruct&, Param3);
 	UPROPERTY(BlueprintAssignable, Category = "Events")
-	FOnGlobalEventFiredBP OnGlobalEventFired_BP;
+	FOnReceivedGlobalEventBP OnReceivedGlobalEvent_BP;
 	private:
-	uint8 _AutoBind_OnGlobalEventFired = [this]() -> uint8 {
-		OnGlobalEventFired.SubscribeLambda([this](auto&&... args) {
-			OnGlobalEventFired_BP.Broadcast(Forward<decltype(args)>(args)...);
+	uint8 _AutoBind_OnReceivedGlobalEvent = [this]() -> uint8 {
+		OnReceivedGlobalEvent.SubscribeLambda(this, [this](auto&&... args) {
+			OnReceivedGlobalEvent_BP.Broadcast(Forward<decltype(args)>(args)...);
+		});
+		return 0;
+	}();
+	public:
+	#pragma endregion
+
+	#pragma region Generated Blueprint Delegate for OnPassedGlobalEventGate
+	public:
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPassedGlobalEventGateBP);
+	UPROPERTY(BlueprintAssignable, Category = "Events")
+	FOnPassedGlobalEventGateBP OnPassedGlobalEventGate_BP;
+	private:
+	uint8 _AutoBind_OnPassedGlobalEventGate = [this]() -> uint8 {
+		OnPassedGlobalEventGate.SubscribeLambda(this, [this](auto&&... args) {
+			OnPassedGlobalEventGate_BP.Broadcast(Forward<decltype(args)>(args)...);
 		});
 		return 0;
 	}();

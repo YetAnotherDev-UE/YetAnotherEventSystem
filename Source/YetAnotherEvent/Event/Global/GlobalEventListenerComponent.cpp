@@ -12,13 +12,24 @@ UGlobalEventListenerComponent::UGlobalEventListenerComponent() {
 void UGlobalEventListenerComponent::BeginPlay() {
 	Super::BeginPlay();
 
+	// Get the tags from the query
+	TArray<FGameplayTag> TagsToListenFor = GlobalEventGate.EventConditionQuery.GetGameplayTagArray();
+
 	// Subscribe to all selected tags
 	for (const FGameplayTag& SelectedTag : TagsToListenFor) {
-		
 		FEventHandle Handle = UGlobalEventHelper::SubscribeToGlobalEvent(this, SelectedTag, this, [this, SelectedTag](UObject* Sender, const FInstancedStruct& Payload) {
-			OnGlobalEventFired.Broadcast(SelectedTag, Sender, Payload);
-			});
-		
+			// Add the event to the received tags (checks uniqueness)
+			ReceivedEvents.AddTag(SelectedTag);
+
+			// Check if we pass the query conditions
+			if (GlobalEventGate.EventConditionQuery.Matches(ReceivedEvents)) {
+				OnPassedGlobalEventGate.Broadcast();
+				if(bResetGateWhenPassed) ReceivedEvents.Reset();
+			}
+
+			OnReceivedGlobalEvent.Broadcast(SelectedTag, Sender, Payload);
+		});
+
 		ActiveHandles.Add(SelectedTag, Handle);
 	}
 }

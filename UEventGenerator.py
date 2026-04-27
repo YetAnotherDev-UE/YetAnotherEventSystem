@@ -181,7 +181,7 @@ def process_uevents(file_path, cached_hash):
             f"\t{delegate_name} {name}_BP;\n"
             f"\tprivate:\n"
             f"\tuint8 _AutoBind_{name} = [this]() -> uint8 {{\n"
-            f"\t\t{name}.SubscribeLambda([this](auto&&... args) {{\n"
+            f"\t\t{name}.SubscribeLambda(this, [this](auto&&... args) {{\n"
             f"\t\t\t{name}_BP.Broadcast(Forward<decltype(args)>(args)...);\n"
             f"\t\t}});\n"
             f"{interceptor_logic}"

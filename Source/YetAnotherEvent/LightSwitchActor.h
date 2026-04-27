@@ -16,9 +16,14 @@ class YETANOTHEREVENT_API ALightSwitchActor : public AActor
 public:	
 	ALightSwitchActor();
 
+protected:
+	virtual void Tick(float DeltaTime) override;
+
 public:
-	UEVENT(BlueprintCallable)
+	UEVENT()
 	TEvent<bool> OnLightSwitchToggled{};
+
+	bool bTriggeredOnce{};
 
 	#pragma region UEVENT Generated Code (DO NOT TOUCH!)
 
@@ -30,23 +35,12 @@ public:
 	FOnLightSwitchToggledBP OnLightSwitchToggled_BP;
 	private:
 	uint8 _AutoBind_OnLightSwitchToggled = [this]() -> uint8 {
-		OnLightSwitchToggled.SubscribeLambda([this](auto&&... args) {
+		OnLightSwitchToggled.SubscribeLambda(this, [this](auto&&... args) {
 			OnLightSwitchToggled_BP.Broadcast(Forward<decltype(args)>(args)...);
 		});
 		return 0;
 	}();
 	public:
-	// Auto-Generated Blueprint Callables
-	UFUNCTION(BlueprintCallable, Category = "Events|OnLightSwitchToggled", meta = (DisplayName = "Broadcast OnLightSwitchToggled"))
-	void BP_Broadcast_OnLightSwitchToggled(bool Param1) {
-		OnLightSwitchToggled.Broadcast(Param1);
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "Events|OnLightSwitchToggled", meta = (DisplayName = "Sliced Broadcast OnLightSwitchToggled", AdvancedDisplay = "MaxExecutionsPerFrame"))
-	void BP_SlicedBroadcast_OnLightSwitchToggled(bool Param1, int32 MaxExecutionsPerFrame = 10) {
-		OnLightSwitchToggled.SlicedBroadcast(MaxExecutionsPerFrame, Param1);
-	}
-
 	#pragma endregion
 	private:
 	#pragma endregion

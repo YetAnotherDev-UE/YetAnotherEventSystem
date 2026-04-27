@@ -15,13 +15,7 @@
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include <atomic>
 
-#if WITH_DEV_AUTOMATION_TESTS
-	#define ENABLE_TEVENT_PROFILING 0
-#else
-	#define ENABLE_TEVENT_PROFILING 1
-#endif
-
-#if ENABLE_TEVENT_PROFILING
+#if CPUPROFILERTRACE_ENABLED // Sadly does not work as expected (Still looking for a solution to not include this in performance tests)
 	#define TEVENT_PROFILER_SCOPE(Name) TRACE_CPUPROFILER_EVENT_SCOPE(Name)
 #else
 	#define TEVENT_PROFILER_SCOPE(Name)
@@ -244,6 +238,14 @@ public:
 				// Trace the execution time of each individual listener
 				TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
 				Node.Callable(InArgs...);
+
+				// TODO: REMOVE THIS LATER (ONLY TEMPORARY)
+				if (Node.bContext && Node.ContextObject.IsValid()) {
+					UE_LOG(LogTemp, Warning, TEXT("Listener is: %s"), *Node.ContextObject->GetName());
+				}
+				else {
+					UE_LOG(LogTemp, Warning, TEXT("Unknown Listener"));
+				}
 
 				if (Node.bOneShot) {
 					ExpiredOneShotIDs.Add(Node.ID);

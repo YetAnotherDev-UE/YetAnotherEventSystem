@@ -8,6 +8,13 @@ AGameplayLightActor::AGameplayLightActor() {
 	PrimaryActorTick.bCanEverTick = false;
 }
 
+void AGameplayLightActor::BeginPlay() {
+	Super::BeginPlay();
+}
+
+void AGameplayLightActor::DoSomething(bool Value) {
+
+}
 
 
 
