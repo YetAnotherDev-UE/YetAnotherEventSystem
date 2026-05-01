@@ -2,10 +2,9 @@
 
 #pragma once
 
-#include "../EventSystem.h"
 #include "GlobalEventSubsystem.h"
-#include "GameplayTagContainer.h"
-#include "StructUtils/InstancedStruct.h"
+#include "GlobalEventPayload.h"
+#include "../EventSystem.h"
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
@@ -18,7 +17,7 @@ class YETANOTHEREVENT_API UGlobalEventHelper : public UBlueprintFunctionLibrary
 	
 public:
 	UFUNCTION(BlueprintCallable, meta = (AutoCreateRefTerm = "Payload", WorldContext = "WorldContextObject"), Category = "Own|Global Events")
-	static void BroadcastGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, UObject* Sender = nullptr, const FInstancedStruct& Payload = FInstancedStruct());
+	static void BroadcastGlobalEvent(const UObject* WorldContextObject, const FGlobalEventPayload& Payload, bool bPropagateToParents = true);
 
 	template<typename TCallable> requires (!TIsPointer<TCallable>::Value)
 	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, UObject* ContextObject, TCallable&& InCallable) {
@@ -34,7 +33,7 @@ public:
 	}
 
 	template<typename TObject>
-	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, TObject* ContextObject, void(TObject::* Method)(UObject*, const FInstancedStruct&)) {
+	static FEventHandle SubscribeToGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, TObject* ContextObject, void(TObject::* Method)(UObject*, const FGlobalEventPayload&)) {
 		if (!WorldContextObject) return FEventHandle{}; // Return an invalid handle if it fails
 		UWorld* World = WorldContextObject->GetWorld();
 		if (!World) return FEventHandle{};

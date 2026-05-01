@@ -17,17 +17,42 @@ void UGlobalEventListenerComponent::BeginPlay() {
 
 	// Subscribe to all selected tags
 	for (const FGameplayTag& SelectedTag : TagsToListenFor) {
-		FEventHandle Handle = UGlobalEventHelper::SubscribeToGlobalEvent(this, SelectedTag, this, [this, SelectedTag](UObject* Sender, const FInstancedStruct& Payload) {
-			// Add the event to the received tags (checks uniqueness)
-			ReceivedEvents.AddTag(SelectedTag);
+		// Will also pass channel (just needs to be updated)
+		FEventHandle Handle = UGlobalEventHelper::SubscribeToGlobalEvent(this, SelectedTag, this, [this](const FGlobalEventPayload& Payload) {
 
-			// Check if we pass the query conditions
-			if (GlobalEventGate.EventConditionQuery.Matches(ReceivedEvents)) {
-				OnPassedGlobalEventGate.Broadcast();
-				if(bResetGateWhenPassed) ReceivedEvents.Reset();
+			// Has specified channels but channel doesn't match
+			if(!Channels.IsEmpty() && !Channels.HasTag(Payload.Channel)) return;
+			
+			// Update accumulator
+			TSet<TWeakObjectPtr<UObject>>& UniqueSenders = SenderAccumulator.FindOrAdd(Payload.EventTag);
+			UniqueSenders.Add(Payload.Sender);
+
+			// Threshold check
+			FThresholdValue* CustomThreshold = TagThresholds.Find(Payload.EventTag);
+			int32 Requirement = CustomThreshold ? CustomThreshold->Value : 1;
+
+			UE_LOG(LogTemp, Warning, TEXT("Actor: %s | Tag: %s | Senders: %d/%d"),
+				*GetOwner()->GetName(),
+				*Payload.EventTag.ToString(),
+				UniqueSenders.Num(),
+				Requirement);
+
+			if (UniqueSenders.Num() >= Requirement) {
+				// Add the event to the received tags (checks uniqueness)
+				ReceivedEvents.AddTag(Payload.EventTag);
 			}
 
-			OnReceivedGlobalEvent.Broadcast(SelectedTag, Sender, Payload);
+			// Check if we pass the gate
+			if (GlobalEventGate.EventConditionQuery.Matches(ReceivedEvents)) {
+				OnPassedGlobalEventGate.Broadcast();
+
+				if (bResetGateWhenPassed) {
+					ReceivedEvents.Reset();
+					SenderAccumulator.Empty();
+				}
+			}
+
+			OnReceivedGlobalEvent.Broadcast(Payload);
 		});
 
 		ActiveHandles.Add(SelectedTag, Handle);

@@ -9,7 +9,22 @@ PATTERN = re.compile( # compile text pattern into object once
     re.DOTALL
 )
 
-CACHE_FILE = os.path.join(os.path.dirname(__file__), ".event_cache.json")
+def get_project_root():
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    while current_dir != os.path.dirname(current_dir):
+        if any(f.endswith('.uproject') for f in os.listdir(current_dir)):
+            return current_dir
+        current_dir = os.path.dirname(current_dir)
+    return os.path.abspath(os.path.dirname(__file__))
+
+PROJECT_ROOT = get_project_root()
+
+# Move cache to 'Intermediate' folder (ignored by source control)
+INTERMEDIATE_DIR = os.path.join(PROJECT_ROOT, "Intermediate", "EventSystem")
+if not os.path.exists(INTERMEDIATE_DIR):
+    os.makedirs(INTERMEDIATE_DIR)
+
+CACHE_FILE = os.path.join(INTERMEDIATE_DIR, "event_cache.json")
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
@@ -217,7 +232,8 @@ def process_uevents(file_path, cached_hash):
     return False, current_hash
 
 def main():
-    source_dir = os.path.join(os.path.dirname(__file__), "Source")  # Go through every folder and sub-folder
+    source_dir = os.path.join(PROJECT_ROOT, "Source")
+
     cache = load_cache()
     updated_cache = {}
     files_processed = 0
@@ -225,22 +241,23 @@ def main():
     for root, _, files in os.walk(source_dir):
         for file_name in files:
             if file_name.endswith(".h"):
-                file_path = os.path.join(root, file_name)
-                current_mtime = os.path.getmtime(file_path)
+                abs_path = os.path.join(root, file_name)
+                rel_path = os.path.relpath(abs_path, PROJECT_ROOT).replace('\\', '/')
+                current_mtime = os.path.getmtime(abs_path)
 
                 # Get the data (if exists)
-                file_cache_data = cache.get(str(file_path), {"mtime": 0, "hash": ""})
+                file_cache_data = cache.get(rel_path, {"mtime": 0, "hash": ""})
 
                 if file_cache_data["mtime"] == current_mtime:
-                    updated_cache[str(file_path)] = file_cache_data
+                    updated_cache[rel_path] = file_cache_data
                     continue
 
                 # File was modified -> run parser
-                was_modified, new_hash = process_uevents(file_path, file_cache_data["hash"])
+                was_modified, new_hash = process_uevents(abs_path, file_cache_data["hash"])
 
                 # Update cache
-                final_mtime = os.path.getmtime(file_path) if was_modified else current_mtime
-                updated_cache[str(file_path)] = {"mtime": final_mtime, "hash": new_hash}
+                final_mtime = os.path.getmtime(abs_path) if was_modified else current_mtime
+                updated_cache[rel_path] = {"mtime": final_mtime, "hash": new_hash}
                 files_processed += 1
 
     save_cache(updated_cache)

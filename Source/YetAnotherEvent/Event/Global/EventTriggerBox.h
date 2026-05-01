@@ -32,5 +32,8 @@ private:
 	FGameplayTagContainer TagsToTrigger{};
 
 	UPROPERTY(EditInstanceOnly, Category="Own|Event Trigger Box")
+	FGameplayTagContainer Channels{};
+
+	UPROPERTY(EditInstanceOnly, Category="Own|Event Trigger Box")
 	TSubclassOf<AActor> FilterClass{};
 };

@@ -7,6 +7,7 @@
 #include "Components/BoxComponent.h"
 #include "GameFramework/Character.h"
 #include "GlobalEventHelper.h"
+#include "GlobalEventPayload.h"
 
 AEventTriggerBox::AEventTriggerBox() {
 	FilterClass = ACharacter::StaticClass();
@@ -46,6 +47,13 @@ void AEventTriggerBox::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActo
 
 void AEventTriggerBox::TriggerAssignedEvents() {
 	for (const FGameplayTag& EventTag : TagsToTrigger) {
-		UGlobalEventHelper::BroadcastGlobalEvent(this, EventTag);
+		for (const FGameplayTag& EventChannel : Channels) {
+			FGlobalEventPayload Payload;
+			Payload.Channel = EventChannel;
+			Payload.EventTag = EventTag;
+			Payload.Sender = this;
+		
+			UGlobalEventHelper::BroadcastGlobalEvent(this, Payload);
+		}
 	}
 }

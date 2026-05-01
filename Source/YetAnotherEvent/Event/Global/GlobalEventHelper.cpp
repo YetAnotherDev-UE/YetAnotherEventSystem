@@ -4,7 +4,7 @@
 
 #include "GlobalEventSubsystem.h"
 
-void UGlobalEventHelper::BroadcastGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, UObject* Sender /*= nullptr*/, const FInstancedStruct& Payload /*= FInstancedStruct()*/) {
+void UGlobalEventHelper::BroadcastGlobalEvent(const UObject* WorldContextObject, const FGlobalEventPayload& Payload, bool bPropagateToParents /*= true*/) {
 	if (!WorldContextObject) return;
 	UWorld* World = WorldContextObject->GetWorld();
 	if (!World) return;
@@ -13,7 +13,7 @@ void UGlobalEventHelper::BroadcastGlobalEvent(const UObject* WorldContextObject,
 	UGlobalEventSubsystem* EventSystem = GameInstance->GetSubsystem<UGlobalEventSubsystem>();
 	if (!EventSystem) return;
 	
-	EventSystem->BroadcastByTag(Tag, Sender, Payload);
+	EventSystem->BroadcastByTag(Payload, bPropagateToParents);
 }
 
 void UGlobalEventHelper::UnsubscribeFromGlobalEvent(const UObject* WorldContextObject, FGameplayTag Tag, FEventHandle Handle) {	

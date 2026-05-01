@@ -3,13 +3,21 @@
 #pragma once
 
 #include "GlobalEventGate.h"
+#include "GlobalEventPayload.h"
 #include "../EventSystem.h"
 #include "GameplayTagContainer.h"
-#include "StructUtils/InstancedStruct.h"
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GlobalEventListenerComponent.generated.h"
+
+USTRUCT(BlueprintType)
+struct FThresholdValue {
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, meta = (ClampMin = "1"))
+    int32 Value = 1;
+};
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class YETANOTHEREVENT_API UGlobalEventListenerComponent : public UActorComponent {
@@ -25,7 +33,7 @@ protected:
 
 public:	
 	UEVENT()
-	TEvent<FGameplayTag, UObject*, const FInstancedStruct&> OnReceivedGlobalEvent{};
+	TEvent<const FGlobalEventPayload&> OnReceivedGlobalEvent{};
 
 	UEVENT()
 	TEvent<> OnPassedGlobalEventGate{};
@@ -35,7 +43,16 @@ private:
 	FGlobalEventGate GlobalEventGate{};
 
 	UPROPERTY(EditAnywhere, Category = "Events")
+	FGameplayTagContainer Channels{};
+
+
+	UPROPERTY(EditAnywhere, Category = "Events")
 	bool bResetGateWhenPassed{true};
+
+	UPROPERTY(EditAnywhere, Category = "Events")
+	TMap<FGameplayTag, FThresholdValue> TagThresholds;
+
+	TMap<FGameplayTag, TSet<TWeakObjectPtr<UObject>>> SenderAccumulator{};
 
 	FGameplayTagContainer ReceivedEvents{};
 
@@ -46,7 +63,7 @@ private:
 
 	#pragma region Generated Blueprint Delegate for OnReceivedGlobalEvent
 	public:
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnReceivedGlobalEventBP, FGameplayTag, Param1, UObject*, Param2, const FInstancedStruct&, Param3);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReceivedGlobalEventBP, const FGlobalEventPayload&, Param1);
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FOnReceivedGlobalEventBP OnReceivedGlobalEvent_BP;
 	private:

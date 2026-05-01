@@ -3,8 +3,7 @@
 #pragma once
 
 #include "../EventSystem.h"
-#include "GameplayTagContainer.h"
-#include "StructUtils/InstancedStruct.h"
+#include "GlobalEventPayload.h"
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
@@ -18,15 +17,15 @@ class YETANOTHEREVENT_API UGlobalEventSubsystem : public UGameInstanceSubsystem
 public:
 	// Automatically generate an empty struct whenever the payload pin is unconnected
 	UFUNCTION(BlueprintCallable, meta = (AutoCreateRefTerm = "Payload"), Category = "Global Events")
-	void BroadcastByTag(FGameplayTag Tag, UObject* Sender, const FInstancedStruct& Payload = FInstancedStruct());
+	void BroadcastByTag(const FGlobalEventPayload& Payload, bool bPropagateToParents = true);
 
 	template<typename TCallable> requires (!TIsPointer<TCallable>::Value)
 	FEventHandle SubscribeToTag(FGameplayTag Tag, UObject* ContextObject, TCallable&& InCallable) {
 		// Adds a null pointer if the tag doesn't exist yet
-		TSharedPtr<TEvent<UObject*, const FInstancedStruct&>>& EventPtr = TaggedEvents.FindOrAdd(Tag);
+		TSharedPtr<TEvent<const FGlobalEventPayload&>>& EventPtr = TaggedEvents.FindOrAdd(Tag);
 
 		if (!EventPtr.IsValid()) { // Allocate a TEvent for the new tag
-			EventPtr = MakeShared<TEvent<UObject*, const FInstancedStruct&>>();
+			EventPtr = MakeShared<TEvent<const FGlobalEventPayload&>>();
 		}
 
 		// Subscribe to the event
@@ -34,11 +33,11 @@ public:
 	}
 
 	template<typename TObject>
-	FEventHandle SubscribeToTag(FGameplayTag Tag, TObject* ContextObject, void(TObject::* Method)(UObject*, const FInstancedStruct&)) {
-		TSharedPtr<TEvent<UObject*, const FInstancedStruct&>>& EventPtr = TaggedEvents.FindOrAdd(Tag);
+	FEventHandle SubscribeToTag(FGameplayTag Tag, TObject* ContextObject, void(TObject::* Method)(UObject*, const FGlobalEventPayload&)) {
+		TSharedPtr<TEvent<const FGlobalEventPayload&>>& EventPtr = TaggedEvents.FindOrAdd(Tag);
 
 		if (!EventPtr.IsValid()) {
-			EventPtr = MakeShared<TEvent<UObject*, const FInstancedStruct&>>();
+			EventPtr = MakeShared<TEvent<const FGlobalEventPayload&>>();
 		}
 
 		return EventPtr->SubscribeUObject(ContextObject, Method);
@@ -48,6 +47,5 @@ public:
 
 private:
 	// Maps a tag to a shared pointer holding the event
-	// UObject: Sender, FInstancedStruct: Payload
-	TMap<FGameplayTag, TSharedPtr<TEvent<UObject*, const FInstancedStruct&>>> TaggedEvents;
+	TMap<FGameplayTag, TSharedPtr<TEvent<const FGlobalEventPayload&>>> TaggedEvents;
 };
