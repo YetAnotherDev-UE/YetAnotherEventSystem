@@ -4,7 +4,7 @@ import json
 import hashlib
 
 PATTERN = re.compile( # compile text pattern into object once
-	r"(UEVENT\s*\((.*?)\)\s*TEvent<(.*?)>\s+(\w+)(?:\{\})?;)"
+	r"(UEVENT\s*\(((?:[^()]*|\([^()]*\))*)\)\s*(?:(?:mutable|const|static)\s+)*TEvent<(.*?)>\s+(\w+)\s*(?:\{\})?\s*;)"
     r"(?:\s*#pragma region Generated Blueprint Delegate.*?\s*#pragma endregion)?",
     re.DOTALL
 )
@@ -28,16 +28,76 @@ CACHE_FILE = os.path.join(INTERMEDIATE_DIR, "event_cache.json")
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
+        try:
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
+        except: return {}
     return {}
 
 def save_cache(cache):
     with open(CACHE_FILE, 'w', encoding='utf-8') as f:
         json.dump(cache, f, indent=4)
 
+def sanitize_type_to_name(type_str):
+    # Converts 'const FString&' to "String"
+    # Remove modifiers
+    clean = type_str.replace("const", "").replace("&", "").replace("*", "").strip()
+
+    # Turn 'TScriptInterface' to the inner type
+    script_interface_match = re.match(r"TScriptInterface<(.*?)>", clean)
+    if script_interface_match:
+        clean = script_interface_match.group(1).strip()
+
+    blueprint_names = {
+        "int32": "Int",
+        "int64": "Int64",
+        "float": "Float",
+        "double": "Double",
+        "bool": "Bool",
+        "FString": "String",
+        "FName": "Name",
+        "FText": "Text",
+        "FVector": "Location",
+        "FRotator": "Rotation",
+        "FTransform": "Transform",
+        "AActor*": "Actor",
+        "UObject*": "Object"
+    }
+
+    if clean in blueprint_names:
+        return blueprint_names[clean]
+
+    # Remove Prefixes (only if followed by another uppercase letter)
+    if len(clean) > 1 and clean[0] in "FUATSI" and clean[1].isupper():
+        clean = clean[1:]
+
+    # Remove template brackets (E.g., TMap<int32, FString> -> Map_Int32_String)
+    clean = clean.replace("<", "_").replace(">", "").replace(",", "_").replace("::", "_")
+    return clean[:1].upper() + clean[1:]
+
+# Function to safely split commas, ignoring commas inside nested < > brackets (e.g., TMap<int32, float>)
+def safe_split_types(type_str):
+    result = []
+    current = ""
+    depth = 0;
+
+    for char in type_str:
+       if char == '<':
+           depth += 1
+       elif char == '>':
+           depth -= 1
+
+       if char == ',' and depth == 0:
+           result.append(current.strip())
+           current = ""
+       else:
+           current += char
+    if current.strip():
+        result.append(current.strip())
+    return result
+
 def process_uevents(file_path, cached_hash):
-    with open(file_path, 'r', encoding='utf-8') as file: 
+    with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
         original_content = file.read()
 
     # Fast-Fail: No events and no old code to clean up
@@ -45,7 +105,7 @@ def process_uevents(file_path, cached_hash):
         return False, ""
 
     # Clean up regions (if run multiple times)
-    content = re.sub(r"\s*#pragma region UEVENT Generated Code \(DO NOT TOUCH!\).*?\n\tprivate:\n\t#pragma endregion\n*", "\n", original_content, flags=re.DOTALL)
+    content = re.sub(r"\s*#pragma region UEVENT Generated Code \(DO NOT TOUCH!\).*?\s*private:\s*#pragma endregion\s*", "\n", original_content, flags=re.DOTALL)
 
     matches = list(PATTERN.finditer(content))
     event_fingerprint = "".join(m.group(0) for m in matches) # Create a unique string from the signature
@@ -56,34 +116,16 @@ def process_uevents(file_path, cached_hash):
         return False, current_hash
 
     # NOTE: At this point we know the events actually changed
+
     is_network_capable = any(base in original_content for base in ["public AActor", "public UActorComponent"])
-    generated_blocks = []
-
-    # Function to safely split commas, ignoring commas inside nested < > brackets (e.g., TMap<int32, float>)
-    def safe_split_types(type_str):
-        result = []
-        current = ""
-        depth = 0;
-        for char in type_str:
-           if char == '<':
-               depth += 1
-           elif char == '>':
-               depth -= 1
-
-           if char == ',' and depth == 0:
-               result.append(current.strip())
-               current = ""
-           else:
-               current += char
-        if current.strip():
-            result.append(current.strip())
-        return result
+    generated_blocks = [] 
 
     for match in matches:
         # Supported arguments
         # ServerOnly (Client-to-Server): E.g., a player clicks their mouse to shoot, the client asks the server to fire the weapon. Ran by only the Server
         # ClientOnly (Server-to-Owning-Client): E.g., the server calculates player damage and wants the player to show a red vignette. Ran only be the specific client who owns the actor
         # Networkable/Multicast (Server-to-Everyone): E.g., An explosion, where everyone needs to see the visual effect. Ran by the server and all connected clients
+        full_macro = match.group(1)
         uevent_args = match.group(2).strip()
         types = match.group(3).strip()
         name = match.group(4)
@@ -91,6 +133,33 @@ def process_uevents(file_path, cached_hash):
         type_list = safe_split_types(types)
         if len(type_list) == 1 and type_list[0] == "": # If the Event is 'TEvent<>': Don't accidently create a list with one empty string
             type_list = []
+
+        custom_names = []
+        name_match = re.search(r'ParamNames\s*=\s*\((.*?)\)', uevent_args)
+        if name_match:
+            raw_names = name_match.group(1).split(',')
+            custom_names = [n.strip().strip('"').strip("'") for n in raw_names]
+
+        # Type-based default names
+        sanitized_bases = [sanitize_type_to_name(t) for t in type_list]
+        total_type_counts = {}
+        for b in sanitized_bases:
+            total_type_counts[b] = total_type_counts.get(b, 0) + 1
+
+        current_type_counts = {}
+        final_names = []
+        for i, t in enumerate(type_list):
+            # Use custom name if provided
+            if i < len(custom_names):
+                final_names.append(custom_names[i])
+            else:
+                base = sanitized_bases[i]
+                # If there's more than one of this type, add index
+                if total_type_counts[base] > 1:
+                    current_type_counts[base] = current_type_counts.get(base, 0) + 1
+                    final_names.append(f"{base}{current_type_counts[base]}")
+                else:
+                    final_names.append(base)
 
         param_count = len(type_list)
         suffixes = ["", "_OneParam", "_TwoParams", "_ThreeParams", "_FourParams", "_FiveParams", "_SixParams", "_SevenParams", "_EightParams", "_NineParams"]
@@ -100,11 +169,11 @@ def process_uevents(file_path, cached_hash):
         signature = f"DECLARE_DYNAMIC_MULTICAST_DELEGATE{suffix}({delegate_name}"
 
         for i, t in enumerate(type_list):
-            signature += f", {t}, Param{i+1}" # e.g., float, Param1, int32, Param2 
+            signature += f", {t}, {final_names[i]}" # e.g., float, Param1, int32, Param2 
         signature += ");"
 
-        call_params = ", ".join([f"{t} Param{i+1}" for i, t in enumerate(type_list)])
-        call_args = ", ".join([f"Param{i+1}" for i in range(len(type_list))])
+        call_params = ", ".join([f"{type_list[i]} {final_names[i]}" for i in range(len(type_list))])
+        call_args = ", ".join(final_names)
 
         sliced_params = f"{call_params}, int32 MaxExecutionsPerFrame = 10" if call_params else "int32 MaxExecutionsPerFrame = 10"
         sliced_args = f"MaxExecutionsPerFrame, {call_args}" if call_args else "MaxExecutionsPerFrame"

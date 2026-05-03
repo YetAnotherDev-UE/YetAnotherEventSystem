@@ -32,7 +32,7 @@ protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 public:	
-	UEVENT()
+	UEVENT(ParamNames = ("GlobalEventPayload"))
 	TEvent<const FGlobalEventPayload&> OnReceivedGlobalEvent{};
 
 	UEVENT()
@@ -63,7 +63,7 @@ private:
 
 	#pragma region Generated Blueprint Delegate for OnReceivedGlobalEvent
 	public:
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReceivedGlobalEventBP, const FGlobalEventPayload&, Param1);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReceivedGlobalEventBP, const FGlobalEventPayload&, GlobalEventPayload);
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FOnReceivedGlobalEventBP OnReceivedGlobalEvent_BP;
 	private:
