@@ -19,6 +19,15 @@ public:
 protected:
 	virtual void Tick(float DeltaTime) override;
 
+private:
+	void TurnOnLight();
+
+	UPROPERTY(EditAnywhere, Category = "Own|Light Switch")
+	float LightIntensity{ 200.0f };
+
+	UPROPERTY(EditInstanceOnly, Category = "Own|Light Switch")
+	TObjectPtr<class AGameplayLightActor> AttachedLight{ nullptr };
+
 public:
 	UEVENT(ParamNames = ("Param1", "Param2", "Param3", "Param4", "Param5"))
 	TEvent<int64, int32, int, FVector, bool> OnLightSwitchToggled_Old{};

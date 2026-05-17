@@ -8,12 +8,12 @@ AGameplayLightActor::AGameplayLightActor() {
 	PrimaryActorTick.bCanEverTick = false;
 }
 
-void AGameplayLightActor::BeginPlay() {
-	Super::BeginPlay();
+void AGameplayLightActor::SetLightIntensity(float InIntensity) {
+
 }
 
-void AGameplayLightActor::DoSomething(bool Value) {
-
+void AGameplayLightActor::BeginPlay() {
+	Super::BeginPlay();
 }
 
 
