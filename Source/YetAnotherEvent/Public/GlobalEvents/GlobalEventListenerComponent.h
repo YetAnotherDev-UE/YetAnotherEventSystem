@@ -4,7 +4,7 @@
 
 #include "GlobalEventGate.h"
 #include "GlobalEventPayload.h"
-#include "../EventSystem.h"
+#include "Event/EventSystem.h"
 #include "GameplayTagContainer.h"
 
 #include "CoreMinimal.h"
@@ -19,11 +19,11 @@ struct FThresholdValue {
     int32 Value = 1;
 };
 
-UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
+UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class YETANOTHEREVENT_API UGlobalEventListenerComponent : public UActorComponent {
 	GENERATED_BODY()
 
-public:	
+public:
 	UGlobalEventListenerComponent();
 
 protected:
@@ -31,7 +31,7 @@ protected:
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-public:	
+public:
 	UEVENT(ParamNames = ("GlobalEventPayload"))
 	TEvent<const FGlobalEventPayload&> OnReceivedGlobalEvent{};
 
@@ -39,24 +39,35 @@ public:
 	TEvent<> OnPassedGlobalEventGate{};
 
 private:
-	UPROPERTY(EditAnywhere, Category = "Events")
-	FGlobalEventGate GlobalEventGate{};
+	// The event tags this component should subscribe to.
+	UPROPERTY(EditAnywhere, Category = "Global Events|Listener")
+	FGameplayTagContainer EventsToListenFor{};
 
-	UPROPERTY(EditAnywhere, Category = "Events")
+	// Optional. If empty, this listener accepts events from all channels.
+	UPROPERTY(EditAnywhere, Category = "Global Events|Listener")
 	FGameplayTagContainer Channels{};
 
+	// Optional advanced gate. This is evaluated against received listener tags.
+	UPROPERTY(EditAnywhere, Category = "Global Events|Gate")
+	FGlobalEventGate GlobalEventGate{};
 
-	UPROPERTY(EditAnywhere, Category = "Events")
+	UPROPERTY(EditAnywhere, Category = "Global Events|Gate")
 	bool bResetGateWhenPassed{true};
 
-	UPROPERTY(EditAnywhere, Category = "Events")
-	TMap<FGameplayTag, FThresholdValue> TagThresholds;
+	// Optional. Counts unique senders per listened event tag before the tag is considered received by the gate.
+	UPROPERTY(EditAnywhere, Category = "Global Events|Gate")
+	TMap<FGameplayTag, FThresholdValue> TagThresholds{};
 
 	TMap<FGameplayTag, TSet<TWeakObjectPtr<UObject>>> SenderAccumulator{};
 
 	FGameplayTagContainer ReceivedEvents{};
 
 	TMap<FGameplayTag, FEventHandle> ActiveHandles{};
+
+	void HandleGlobalEvent(const FGlobalEventPayload& Payload, FGameplayTag MatchedSubscriptionTag);
+	bool PassesChannelFilter(const FGlobalEventPayload& Payload) const;
+	void AccumulateGateEvent(const FGlobalEventPayload& Payload, FGameplayTag MatchedSubscriptionTag);
+	void ResetGateState();
 
 	#pragma region UEVENT Generated Code (DO NOT TOUCH!)
 

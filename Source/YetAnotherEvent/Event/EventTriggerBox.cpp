@@ -6,8 +6,8 @@
 #include "Components/ShapeComponent.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/Character.h"
-#include "GlobalEventHelper.h"
-#include "GlobalEventPayload.h"
+#include "GlobalEvents/GlobalEventHelper.h"
+#include "GlobalEvents/GlobalEventPayload.h"
 
 AEventTriggerBox::AEventTriggerBox() {
 	FilterClass = ACharacter::StaticClass();

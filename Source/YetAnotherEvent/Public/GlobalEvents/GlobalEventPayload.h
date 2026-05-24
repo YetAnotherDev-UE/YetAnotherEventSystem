@@ -2,10 +2,10 @@
 
 #pragma once
 
+#include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "StructUtils/InstancedStruct.h"
 
-#include "CoreMinimal.h"
 #include "GlobalEventPayload.generated.h"
 
 USTRUCT(BlueprintType)
@@ -19,7 +19,7 @@ struct FGlobalEventPayload {
 	FGameplayTag EventTag{};
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Events")
-	UObject* Sender{ nullptr };
+	TObjectPtr<UObject> Sender{ nullptr };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Events")
 	FInstancedStruct Data{};

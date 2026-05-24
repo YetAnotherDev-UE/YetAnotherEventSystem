@@ -1,5 +1,5 @@
 #include "Misc/AutomationTest.h"
-#include "../Event/EventSystem.h"
+#include "Event/EventSystem.h"
 
 // Standard multicast delegate for comparison
 DECLARE_MULTICAST_DELEGATE_OneParam(FStandardUnrealEvent, int32);

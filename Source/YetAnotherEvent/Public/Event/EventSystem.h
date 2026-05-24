@@ -12,13 +12,14 @@
 
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
+#include "Containers/Ticker.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include <atomic>
 
 #if CPUPROFILERTRACE_ENABLED // Sadly does not work as expected (Still looking for a solution to not include this in performance tests)
-	#define TEVENT_PROFILER_SCOPE(Name) TRACE_CPUPROFILER_EVENT_SCOPE(Name)
+#define TEVENT_PROFILER_SCOPE(Name) TRACE_CPUPROFILER_EVENT_SCOPE(Name)
 #else
-	#define TEVENT_PROFILER_SCOPE(Name)
+#define TEVENT_PROFILER_SCOPE(Name)
 #endif
 
 #ifndef UEVENT
@@ -60,18 +61,23 @@ private:
 
 public:
 	TEvent() = default;
+	TEvent(const TEvent&) = delete;
+	TEvent& operator=(const TEvent&) = delete;
+	TEvent(TEvent&&) = delete;
+	TEvent& operator=(TEvent&&) = delete;
+
 	~TEvent() {
 		FScopeLock Lock(&Mutex);
 
 		// Cancel any pending async broadcasts before the event gets destroyed
-		for (FTSTicker::FDelegateHandle& Handle : AsnycTickerHandles) {
+		for (FTSTicker::FDelegateHandle& Handle : AsyncTickerHandles) {
 			if (Handle.IsValid()) {
 				FTSTicker::GetCoreTicker().RemoveTicker(Handle);
 			}
 		}
 
 		// Clear array
-		AsnycTickerHandles.Empty();
+		AsyncTickerHandles.Empty();
 		Callbacks.Empty();
 	}
 
@@ -79,8 +85,8 @@ public:
 		FScopeLock lock(&Mutex);
 
 		TArray<uint64, TInlineAllocator<32>> KeysToRemove;
-		for (auto& Pair : Callbacks) {
-			if (!Pair.Value.Callback->IsValid()) {
+		for (const auto& Pair : Callbacks) {
+			if (!Pair.Value.IsValid()) {
 				KeysToRemove.Add(Pair.Key);
 			}
 		}
@@ -106,7 +112,7 @@ public:
 			if (TObject* ValidObj = WeakObj.Get()) {
 				(ValidObj->*Method)(InArgs...);
 			}
-		};
+			};
 
 		FScopeLock Lock(&Mutex);
 
@@ -154,7 +160,7 @@ public:
 			if (bHasFired->compare_exchange_strong(bExpected, true)) { // Guarantee only the first thread will swap this to true
 				Callable(InArgs...);
 			}
-		};
+			};
 
 		FScopeLock Lock(&Mutex);
 		const uint64 Id = ++NextID;
@@ -239,14 +245,6 @@ public:
 				TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
 				Node.Callable(InArgs...);
 
-				// TODO: REMOVE THIS LATER (ONLY TEMPORARY)
-				if (Node.bContext && Node.ContextObject.IsValid()) {
-					UE_LOG(LogTemp, Warning, TEXT("Listener is: %s"), *Node.ContextObject->GetName());
-				}
-				else {
-					UE_LOG(LogTemp, Warning, TEXT("Unknown Listener"));
-				}
-
 				if (Node.bOneShot) {
 					ExpiredOneShotIDs.Add(Node.ID);
 				}
@@ -296,7 +294,7 @@ public:
 
 				NewCache->Sort([](const FCallbackNode& A, const FCallbackNode& B) {
 					return A.Priority > B.Priority;
-					}); 
+					});
 
 				ImmutableCache = NewCache;
 			}
@@ -341,8 +339,8 @@ public:
 					TEVENT_PROFILER_SCOPE(TEvent_ExecuteSingleListener);
 					TaskState->CopiedArgs.ApplyAfter([&TargetNode](auto&&... UnpackedArgs) {
 						TargetNode.Callable(Forward<decltype(UnpackedArgs)>(UnpackedArgs)...);
-					});
-		
+						});
+
 					if (TargetNode.bOneShot) {
 						// Immediately delete it from the master dictionary -> won't be rebuild
 						FScopeLock Lock(&Mutex);
@@ -364,7 +362,7 @@ public:
 			// Make sure to clean up the handle to avoid memory leaks
 			if (!RunAgain) {
 				FScopeLock Lock(&Mutex);
-				AsnycTickerHandles.RemoveSingleSwap(*SafeHandle);
+				AsyncTickerHandles.RemoveSingleSwap(*SafeHandle);
 			}
 
 			// Returns true, if hasn't reached end -> run lambda again
@@ -375,7 +373,7 @@ public:
 			FScopeLock Lock(&Mutex);
 
 			// Store handle for later (in case event is destroyed before the ticker finishes)
-			AsnycTickerHandles.Add(*SafeHandle);
+			AsyncTickerHandles.Add(*SafeHandle);
 		}
 	}
 
@@ -389,7 +387,10 @@ public:
 	TFunction<bool(Args...)> NetworkInterceptor;
 	TFunction<bool(int32, Args...)> SlicedNetworkInterceptor;
 
-	int32 GetListenerCount() const { return Callbacks.Num(); }
+	int32 GetListenerCount() const {
+		FScopeLock Lock(&Mutex);
+		return Callbacks.Num();
+	}
 
 private:
 	TMap<uint64, FCallbackNode> Callbacks{};
@@ -410,5 +411,5 @@ private:
 	mutable FCriticalSection Mutex; // allow locking in const methods
 
 	// Store the handles -> needed e.g., if object with event calls 'AsyncBroadcast' but is then destroyed, we need a way to remove the dead event
-	TArray<FTSTicker::FDelegateHandle> AsnycTickerHandles;
+	TArray<FTSTicker::FDelegateHandle> AsyncTickerHandles;
 };
