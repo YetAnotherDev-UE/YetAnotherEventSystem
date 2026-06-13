@@ -42,9 +42,6 @@ public:
 	UEVENT()
 	TEvent<> OnPassedGlobalEventGate{};
 
-	UEVENT(BlueprintCallable, ParamNames = ("GlobalEventPayload"))
-	TEvent<const FGlobalEventPayload&> OnReceivedGlobalEvent_Two{};
-
 private:
 	// The event tags this component should subscribe to.
 	UPROPERTY(EditAnywhere, Category = "Global Events|Listener")
@@ -109,32 +106,6 @@ private:
 		return 0;
 	}();
 	public:
-	#pragma endregion
-
-	#pragma region Generated Blueprint Delegate for OnReceivedGlobalEvent_Two
-	public:
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReceivedGlobalEvent_TwoBP, const FGlobalEventPayload&, GlobalEventPayload);
-	UPROPERTY(BlueprintAssignable, Category = "Events")
-	FOnReceivedGlobalEvent_TwoBP OnReceivedGlobalEvent_Two_BP;
-	private:
-	uint8 _AutoBind_OnReceivedGlobalEvent_Two = [this]() -> uint8 {
-		OnReceivedGlobalEvent_Two.SubscribeLambda(this, [this](auto&&... args) {
-			OnReceivedGlobalEvent_Two_BP.Broadcast(Forward<decltype(args)>(args)...);
-		});
-		return 0;
-	}();
-	public:
-
-	// Auto-generated Blueprint broadcast wrappers.
-	UFUNCTION(BlueprintCallable, Category = "Events|OnReceivedGlobalEvent_Two", meta = (DisplayName = "Broadcast OnReceivedGlobalEvent_Two"))
-	void BP_Broadcast_OnReceivedGlobalEvent_Two(const FGlobalEventPayload& GlobalEventPayload) {
-		OnReceivedGlobalEvent_Two.Broadcast(GlobalEventPayload);
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "Events|OnReceivedGlobalEvent_Two", meta = (DisplayName = "Sliced Broadcast OnReceivedGlobalEvent_Two", AdvancedDisplay = "MaxExecutionsPerFrame"))
-	void BP_SlicedBroadcast_OnReceivedGlobalEvent_Two(const FGlobalEventPayload& GlobalEventPayload, int32 MaxExecutionsPerFrame = 10) {
-		OnReceivedGlobalEvent_Two.SlicedBroadcast(MaxExecutionsPerFrame, GlobalEventPayload);
-	}
 	#pragma endregion
 	private:
 	#pragma endregion
