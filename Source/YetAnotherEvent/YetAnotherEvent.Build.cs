@@ -12,8 +12,7 @@ public class YetAnotherEvent : ModuleRules
             "CoreUObject",
             "Engine",
             "GameplayTags",
-            "StructUtils",
-            "DeveloperSettings"
+            "YetAnotherEventRuntime"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[]

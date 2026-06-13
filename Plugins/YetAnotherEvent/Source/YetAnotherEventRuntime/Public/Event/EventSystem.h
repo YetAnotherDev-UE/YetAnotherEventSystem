@@ -10,10 +10,12 @@
 ******************************************************************************/
 #pragma once
 
-#include "CoreMinimal.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "UObject/WeakObjectPtrTemplates.h"
+#include "UObject/WeakObjectPtr.h"
 #include "HAL/CriticalSection.h"
 #include "Containers/Ticker.h"
-#include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "CoreMinimal.h"
 #include <atomic>
 
 #if CPUPROFILERTRACE_ENABLED // Sadly does not work as expected (Still looking for a solution to not include this in performance tests)

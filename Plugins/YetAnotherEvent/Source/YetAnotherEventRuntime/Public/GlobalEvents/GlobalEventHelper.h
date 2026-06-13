@@ -11,7 +11,7 @@
 #include "GlobalEventHelper.generated.h"
 
 UCLASS()
-class YETANOTHEREVENT_API UGlobalEventHelper : public UBlueprintFunctionLibrary
+class YETANOTHEREVENTRUNTIME_API UGlobalEventHelper : public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
 	

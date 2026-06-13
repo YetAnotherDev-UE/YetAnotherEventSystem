@@ -4,6 +4,7 @@
 
 #include "GlobalEvents/GlobalEventHelper.h"
 #include "YetAnotherEventLog.h"
+#include "GameFramework/Actor.h"
 
 UGlobalEventListenerComponent::UGlobalEventListenerComponent() {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -53,6 +54,10 @@ void UGlobalEventListenerComponent::EndPlay(EEndPlayReason::Type EndPlayReason) 
 
 void UGlobalEventListenerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+}
+
+bool UGlobalEventListenerComponent::UsesGate() const {
+	return GlobalEventGate.ShouldEvaluate();
 }
 
 void UGlobalEventListenerComponent::HandleGlobalEvent(const FGlobalEventPayload& Payload, FGameplayTag MatchedSubscriptionTag) {

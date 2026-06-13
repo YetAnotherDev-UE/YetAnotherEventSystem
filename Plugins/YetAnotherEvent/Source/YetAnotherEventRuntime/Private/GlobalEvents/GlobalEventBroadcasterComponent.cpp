@@ -4,6 +4,7 @@
 
 #include "GlobalEvents/GlobalEventHelper.h"
 #include "GlobalEvents/GlobalEventPayload.h"
+#include "GameFramework/Actor.h"
 #include "YetAnotherEventLog.h"
 
 UGlobalEventBroadcasterComponent::UGlobalEventBroadcasterComponent() {
@@ -31,7 +32,7 @@ void UGlobalEventBroadcasterComponent::TriggerEvents() {
 	}
 }
 
-void UGlobalEventBroadcasterComponent::BroadcastEntry(const FGlobalEventBroadcastEntry& Entry, UObject* SenderObject) const {
+void UGlobalEventBroadcasterComponent::BroadcastEntry(const FGlobalEventBroadcastEntry& Entry, UObject* SenderObject) {
 	if (!Entry.EventTag.IsValid()) {
 		UE_LOG(LogYetAnotherEvent, Warning, TEXT("GlobalEventBroadcasterComponent on '%s' skipped an entry with an invalid event tag."), *GetNameSafe(GetOwner()));
 		return;
@@ -45,6 +46,7 @@ void UGlobalEventBroadcasterComponent::BroadcastEntry(const FGlobalEventBroadcas
 		Payload.Data = Entry.PayloadData;
 
 		UGlobalEventHelper::BroadcastGlobalEvent(this, Payload, Entry.bPropagateToParents);
+		OnGlobalEventBroadcastRequested.Broadcast(Payload);
 		};
 
 	if (Entry.Channels.IsEmpty()) {

@@ -8,7 +8,7 @@
 #include "GlobalEventSettings.generated.h"
 
 UCLASS(Config=Game, defaultconfig, meta = (DisplayName = "Global Event Settings"))
-class YETANOTHEREVENT_API UGlobalEventSettings : public UDeveloperSettings {
+class YETANOTHEREVENTRUNTIME_API UGlobalEventSettings : public UDeveloperSettings {
 	GENERATED_BODY()
 	
 public:

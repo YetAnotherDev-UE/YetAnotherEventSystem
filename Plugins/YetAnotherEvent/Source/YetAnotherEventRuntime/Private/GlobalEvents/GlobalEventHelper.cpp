@@ -3,7 +3,9 @@
 #include "GlobalEvents/GlobalEventHelper.h"
 
 #include "GlobalEvents/GlobalEventSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "YetAnotherEventLog.h"
+#include "Engine/World.h"
 
 UGlobalEventSubsystem* UGlobalEventHelper::GetEventSubsystem(const UObject* WorldContextObject, const TCHAR* OperationName) {
 	if (!WorldContextObject) {

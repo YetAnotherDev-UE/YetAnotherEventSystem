@@ -1,0 +1,19 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Yet Another Event",
+  "Description": "A layered Unreal Engine event framework with typed C++ events, GameplayTag-routed global messages, Blueprint-friendly broadcaster/listener components, and code generation tooling.",
+  "Category": "Gameplay",
+  "CreatedBy": "YetAnotherDev",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "YetAnotherEventRuntime",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

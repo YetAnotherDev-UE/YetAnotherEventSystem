@@ -11,7 +11,7 @@
 #include "GlobalEventSubsystem.generated.h"
 
 UCLASS()
-class YETANOTHEREVENT_API UGlobalEventSubsystem : public UGameInstanceSubsystem
+class YETANOTHEREVENTRUNTIME_API UGlobalEventSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
 

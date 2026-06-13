@@ -13,10 +13,10 @@ struct FGlobalEventPayload {
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Events")
-	FGameplayTag Channel{};
+	FGameplayTag EventTag{};
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Events")
-	FGameplayTag EventTag{};
+	FGameplayTag Channel{};
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Events")
 	TObjectPtr<UObject> Sender{ nullptr };
